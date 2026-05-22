@@ -7,7 +7,7 @@ major_version, minor_version, patch_version = int(st_version[0]), int(st_version
 from streamlit.elements.lib.options_selector_utils import convert_to_sequence_and_check_comparable, get_default_indices
 Width = None
 BindOption = None
-RegisterWidgetResult = Any
+from streamlit.runtime.state.common import RegisterWidgetResult
 
 if major_version == 1:
     if minor_version < 38:
@@ -23,7 +23,7 @@ if major_version == 1:
     elif minor_version >= 55:
         from streamlit.elements.widgets.button_group import _SingleSelectButtonGroupSerde, _MultiSelectButtonGroupSerde, T, V
         from streamlit.elements.lib.layout_utils import Width
-        from streamlit.runtime.state.common import RegisterWidgetResult, BindOption
+        from streamlit.runtime.state.common import BindOption
         from streamlit.elements.lib.options_selector_utils import maybe_coerce_enum_sequence, maybe_coerce_enum
         from streamlit.string_util import validate_material_icon, is_emoji
 
@@ -70,6 +70,7 @@ from streamlit.string_util import validate_material_icon
 
 
 def st_button_group(
+    label: str | None,
     options: Sequence[Any],
     *,
     key: str = "button_group",
@@ -81,7 +82,6 @@ def st_button_group(
     on_change: WidgetCallback | None = None,
     args=None,
     kwargs=None,
-    label: str | None = None,
     label_visibility: Literal["visible", "hidden", "collapsed"] = "visible",
     # Opciones nuevas para controlar la visibilidad de la selección en modo single
     # selection_visualization: Literal["only_selected", "all_up_to_selected"] = "only_selected",
@@ -96,6 +96,7 @@ def st_button_group(
     #     if st.session_state[f"{key}_{i_key}__check"]:
     #         i_key += 1
     #         st.session_state[f"{key}_{i_key}__check"] = False
+
 
     unique_key = key
 
@@ -182,19 +183,26 @@ def st_button_group(
         view = st.empty()
         if st.session_state.get(unique_key) is None:
             st.session_state[unique_key] = st.session_state.get(f"{unique_key}__prev_value", default)
-            params["default"] = get_default_indices(indexable_options, st.session_state.get(f"{unique_key}__prev_value", default))
+            # params["default"] = get_default_indices(indexable_options, st.session_state.get(f"{unique_key}__prev_value", default))
         with view:
+            params["default"] = None
             res: RegisterWidgetResult[Any] = st._main._button_group(**params)
             # st.session_state[f"{unique_key}__check"] = True
 
     elif selection_mode == "single" and keep_selection == "never_visible":
+        # Valor forzado por el usuario externamente
+        click_value = st.session_state.get(unique_key)
+        st.session_state[unique_key] = None
+        st.session_state[f"{unique_key}_nv_value"] = None
+        params["default"] = None
+
         view = st.empty()
-        if st.session_state.get(unique_key) is not None:
-            st.session_state[unique_key] = st.session_state.get(f"{unique_key}__prev_value", default)
-            params["default"] = None
+        if click_value is None:
+            click_value = st.session_state.get(f"{unique_key}__prev_value", default)
         with view:
             res: RegisterWidgetResult[Any] = st._main._button_group(**params)
             # st.session_state[f"{unique_key}__check"] = True
+            res = RegisterWidgetResult(value=click_value, value_changed=False)
 
     else:
         res: RegisterWidgetResult[Any] = st._main._button_group(**params)
@@ -211,10 +219,9 @@ def st_button_group(
         # st.session_state[f"{unique_key}__prev_value"] = res.value
         return cast("list[V]", res.value)
 
-    if RegisterWidgetResult is not Any:
-        single_res = cast("RegisterWidgetResult[V | str | None]", res)
-        single_res = maybe_coerce_enum(single_res, options, indexable_options)
-        res = single_res
+    single_res = cast("RegisterWidgetResult[V | str | None]", res)
+    single_res = maybe_coerce_enum(single_res, options, indexable_options)
+    res = single_res
 
     st.session_state[f"{unique_key}__prev_value"] = res.value
     return cast("V | None", res.value)

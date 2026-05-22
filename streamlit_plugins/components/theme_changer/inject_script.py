@@ -2,8 +2,8 @@ from typing import Literal
 
 import streamlit as st
 
-WIDTH: Literal["stretch", "content"] | int = "content"
-HEIGHT: Literal["stretch", "content"] | int = "content"
+WIDTH: Literal["stretch", "content"] | int = 1
+HEIGHT: Literal["stretch", "content"] | int = 1
 try:
     iframe = st.iframe
 except Exception as e:

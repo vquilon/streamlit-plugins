@@ -124,7 +124,10 @@ def _button_mode(theme_names, unique_key, render_mode, themes_data, timeout_rend
         for cross_theme_key in cross_key_theme_changers:
             st.session_state[f"{cross_theme_key}_need_update"] = True
 
-        change_theme_coi(KEY, themes_data[theme_index])
+        with st.container(key=f"{KEY}-{render_mode}-theme-index"):
+            get_hide_style_coi_change_iframe(f"{KEY}-{render_mode}-theme-index")
+            change_theme_coi(KEY, themes_data[theme_index])
+
         time.sleep(timeout_rendering_theme_change)
         if cross_key_theme_changers:
             st.rerun()
@@ -147,13 +150,13 @@ def _pills_mode(theme_names, unique_key, render_mode, themes_data, timeout_rende
                 # Desactivar flag de modificacion cruzada
                 st.session_state[f"{unique_key}_need_update"] = False
 
-    new_theme_index = st.pills(
+    new_theme_index = st_button_group(
         "Change Theme",
         theme_names,
         default=theme_index,
         format_func=lambda option: themes_data[option].icon,
-        # style="pills", # selection_visualization="only_selected",
-        # keep_selection="always_visible",
+        style="segmented_control",
+        keep_selection="always_visible",
         selection_mode="single",
         key=f"{unique_key}_{render_mode}",
     )
@@ -165,9 +168,25 @@ def _pills_mode(theme_names, unique_key, render_mode, themes_data, timeout_rende
         for cross_theme_key in cross_key_theme_changers:
             st.session_state[f"{cross_theme_key}_need_update"] = True
 
-        change_theme_coi(KEY, themes_data[new_theme_index])
+        with st.container(key=f"{KEY}-{render_mode}-theme-index"):
+            get_hide_style_coi_change_iframe(f"{KEY}-{render_mode}-theme-index")
+            change_theme_coi(KEY, themes_data[new_theme_index])
         time.sleep(timeout_rendering_theme_change)
         st.rerun()
+
+def get_hide_style_coi_change_iframe(key: str):
+    st.markdown(
+        """<style>
+            :has(> KEY){
+                display: none;
+            }
+        </style>
+        """.replace(
+            "KEY",
+            f".st-key-{key}"
+        ),
+        unsafe_allow_html=True
+    )
 
 def st_theme_changer(
     themes_data: dict[str, ThemeInput] | None = None,
@@ -214,7 +233,8 @@ def st_theme_changer(
         st.session_state[f"{KEY}_COI_injected"] = True
 
         st_void = st.empty()
-        with st_void:
+        with st_void.container(key=f"{KEY}-{render_mode}-theme-index"):
+            get_hide_style_coi_change_iframe(f"{KEY}-{render_mode}-theme-index")
             change_theme_coi(KEY, themes_data[st.session_state[f"{KEY}_theme_index"]])
         time.sleep(0.1)  # Ensure enough time for client to load the script
         st_void.empty()
@@ -235,7 +255,10 @@ def st_theme_changer(
     
     if render_mode in ["change", "next"] or render_init_condition:
         st_void = st.empty()
-        with st_void:
+        inc = st.session_state.get(f"{KEY}_inc", 0)
+        st.session_state[f"{KEY}_inc"] = inc + 1
+        with st_void.container(key=f"{KEY}-{render_mode}-{inc}-theme-index"):
+            get_hide_style_coi_change_iframe(f"{KEY}-{render_mode}-{inc}-theme-index")
             change_theme_coi(KEY, themes_data[st.session_state[f"{KEY}_theme_index"]])
 
             if render_mode == "next" or render_mode == "change":
