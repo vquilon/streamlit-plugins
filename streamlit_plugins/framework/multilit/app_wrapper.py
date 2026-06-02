@@ -13,11 +13,10 @@ class STPageWrapper:
 
     """
 
-    def __init__(self, st_page: StreamlitPage, with_loader=None, loading_engine: LoadingEngine | None = None):
+    def __init__(self, st_page: StreamlitPage, with_loader=None):
         self.id: str = "unset"
         self.access_level: int | None = None
         self.with_loader = with_loader
-        self.loading_engine = loading_engine
         self.parent_app = None
         self.st_page = st_page
         self.title: str = st_page.title

@@ -6,6 +6,8 @@ from typing import TypeVar, Callable, Tuple, Optional
 
 import streamlit as st
 
+LOADER_Z_INDEX = 999999
+
 SHOWCASE2_GLOBAL_STYLES = """
     <style>
         a{
@@ -476,7 +478,7 @@ SHOWCASE_GLOBAL_STYLES = """
         flex-wrap: nowrap;
         justify-content: center;
         pointer-events: none;
-        z-index: 999;
+        z-index: LOADER_Z_INDEX_1;
     }
 
     .loader-star {
@@ -2403,7 +2405,7 @@ SHOWCASE_GLOBAL_STYLES = """
         }
     }
 </style>
-"""
+""".replace("LOADER_Z_INDEX", str(LOADER_Z_INDEX)).replace("LOADER_Z_INDEX_1", str(LOADER_Z_INDEX-1))
 
 
 def points_line(**kwargs):
@@ -2431,7 +2433,7 @@ def points_line(**kwargs):
         }            
         .container {
             text-align: center;
-            z-index: 999;
+            z-index: LOADER_Z_INDEX_1;
         }
         section {
             /* width: 30%; */
@@ -2588,7 +2590,7 @@ def grid_points(**kwargs):
         }            
         .container {
             text-align: center;
-            z-index: 999;
+            z-index: LOADER_Z_INDEX_1;
         }
         section {
             /* width: 30%; */
@@ -2734,7 +2736,7 @@ def pulse_bars(**kwargs):
         }            
         .container {
             text-align: center;
-            z-index: 999;
+            z-index: LOADER_Z_INDEX_1;
         }
         section {
             /* width: 30%; */
@@ -2858,7 +2860,7 @@ def pacman_loader(**kwargs):
         }            
         .container {
             text-align: center;
-            z-index: 999;
+            z-index: LOADER_Z_INDEX_1;
         }
         @keyframes ldio-2h0ei997e6j-1 {
             0% { transform: rotate(0deg) }
@@ -3313,7 +3315,7 @@ def standard_loaders(index=0):
         }
         .container {
             text-align: center;
-            z-index: 999;
+            z-index: LOADER_Z_INDEX_1;
         }
         section {
             /* width: 30%; */
@@ -3445,7 +3447,7 @@ def book_loader(**kwargs):
             height: 350px;
             /* background: #000000e6; */
             border-radius: 50%;
-            z-index: 1000;
+            z-index: LOADER_Z_INDEX;
         }
         .book-parent:after {
             content: "";
@@ -3456,7 +3458,7 @@ def book_loader(**kwargs):
             height: 100vh;
             background: ||-bcolor-||;
             backdrop-filter: blur(2px);
-            z-index: 999;
+            z-index: LOADER_Z_INDEX_1;
         }
         .book-container {
             --duration: 6s;
@@ -3469,7 +3471,7 @@ def book_loader(**kwargs):
             flex-wrap: nowrap;
             align-items: center;
             pointer-events: none;
-            z-index: 1000;
+            z-index: LOADER_Z_INDEX;
         }
         .book-container .icon {
             position: absolute;
@@ -4414,18 +4416,29 @@ def get_loader(loader_lib: LoadersLib | Callable[..., Tuple[str, str ,str], ], *
 class BaseLoader(ABC):
     LOADER_KEY = 'loader_container'
 
-    def __init__(self, loader_container=None, **kwargs):
-        if loader_container is None:
-            loader_container = st.container(key=self.LOADER_KEY)
-            with loader_container:
-                st.markdown(
-                    f"<style>\ndiv:has(>.st-key-{self.LOADER_KEY}){{\nheight: 0; position: absolute;\n}}\n</style>",
-                    unsafe_allow_html=True
-                )
+    def __init__(self, loader_container_key: Optional[str] = None, **kwargs):
+        if loader_container_key is None:
+            loader_container_key = self.LOADER_KEY
+        self.loader_container_key = loader_container_key
+
+        if "loader_container" in kwargs:
+            loader_container = kwargs["loader_container"]
+        else:
+            loader_container = st.container(key=self.loader_container_key)
+
+        with loader_container:
+            st.markdown(
+                f"<style>\ndiv:has(>.st-key-{self.loader_container_key}){{\nheight: 0; position: absolute;left:0;z-index:{LOADER_Z_INDEX-1}\n}}\n</style>",
+                unsafe_allow_html=True
+            )
         self.loader_container = loader_container
 
     def recreate_loader_with(self, **loader_kwargs) -> "LoaderType":
-        return self.__class__(loader_container=self.loader_container, **loader_kwargs)
+        return self.__class__(
+            loader_container_key=self.loader_container_key,
+            loader_container=self.loader_container,
+            **loader_kwargs
+        )
 
     @abstractmethod
     def run_loader(self, **kwargs):
@@ -4440,13 +4453,14 @@ LoaderType = TypeVar('LoaderType', bound=BaseLoader)
 
 class DefaultLoader(BaseLoader):
     def __init__(self,
-        loader_container=None,
+        loader_container_key: Optional[str] = None,
         label='', height=256,
         primary_color=None, background_color=None,
         loader_lib: LoadersLib | Callable[..., Tuple[str, str ,str], ] = LoadersLib.book_loader, index=0, loader_lib_kwargs: dict = None,
-        sleep_animation_time: float = 0.1
+        sleep_animation_time: float = 0.1,
+         **kwargs
     ):
-        super().__init__(loader_container=loader_container)
+        super().__init__(loader_container_key=loader_container_key, **kwargs)
         self.sleep_animation_time = sleep_animation_time
         if primary_color is None:
             if st.get_option('theme.primaryColor') is None:
@@ -4479,10 +4493,10 @@ class DefaultLoader(BaseLoader):
 
         loader_div, loader_style, loader_output_style = get_loader(loader_lib, index=index, **loader_lib_kwargs)
         self.loader_div = loader_div
-        self.loader_style = loader_style
+        self.loader_style = loader_style.replace("LOADER_Z_INDEX", str(LOADER_Z_INDEX)).replace("LOADER_Z_INDEX_1", str(LOADER_Z_INDEX-1))
 
         self.element_code = loader_div.replace("||-label-||", label)
-        self.element_style = loader_style.replace('||-height-||', height_css)
+        self.element_style = self.loader_style.replace('||-height-||', height_css)
         self.element_style = self.element_style.replace('||-pcolor-||', primary_color)
         self.element_style = self.element_style.replace('||-bcolor-||', background_color)
 

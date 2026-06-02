@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Literal, Optional, Tuple
 
 import streamlit
 import streamlit as st
+
 try:
     from streamlit.web.server.routes import _DEFAULT_ALLOWED_MESSAGE_ORIGINS
 except ImportError as e:
@@ -18,7 +19,7 @@ try:
 except ModuleNotFoundError:
     from streamlit.runtime.scriptrunner_utils.script_requests import ScriptRequestType, RerunData
 
-from streamlit_plugins.components.loader import BaseLoader, LoaderType, LoadersLib
+from streamlit_plugins.components.loader import BaseLoader, LoaderType, LoadersLib, DefaultLoader
 from streamlit_plugins.components.navbar import (
     DEFAULT_THEMES,
     HEADER_HEIGHT,
@@ -26,6 +27,7 @@ from streamlit_plugins.components.navbar import (
     init_navigation_transition, get_navigation_transition,
     set_default_page, set_force_next_page, set_navigation_transition,
     st_navigation, st_switch_page, has_changed_page,
+    NAVIGATION_COMPONENT_KEY, NAVIGATION_KEY_PREFIX, NAVBAR_KEY_PREFIX
 )
 from .app_wrapper import STPageWrapper
 from .loading_engine import LoadingEngine
@@ -51,8 +53,8 @@ if major == 1:
         DEFAULT_NAVBAR_PARENT_SELECTOR_FRAGMENT = """[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"] > iframe[title="streamlit_plugins.components.navbar.nav_bar"])"""
 
     if minnor >= 43:
-        DEFAULT_NAVBAR_PARENT_SELECTOR = """[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"].st-key-NavigationComponent > div > iframe[title="streamlit_plugins.components.navbar.nav_bar"])"""
-        DEFAULT_NAVBAR_PARENT_SELECTOR_FRAGMENT = """[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"].st-key-NavigationComponent > div > iframe[title="streamlit_plugins.components.navbar.nav_bar"])"""
+        DEFAULT_NAVBAR_PARENT_SELECTOR = f"""[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"].st-key-{NAVIGATION_COMPONENT_KEY} > div > iframe[title="streamlit_plugins.components.navbar.nav_bar"])"""
+        DEFAULT_NAVBAR_PARENT_SELECTOR_FRAGMENT = f"""[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"].st-key-{NAVIGATION_COMPONENT_KEY} > div > iframe[title="streamlit_plugins.components.navbar.nav_bar"])"""
 
 
 def add_trusted_url(url: str):
@@ -116,6 +118,7 @@ class FNStreamlitPage(StreamlitPage):
     def run(self):
         self._page()
 
+
 class SectionWithStatement:
     def __init__(self, name, exit_fn):
         self.name = name
@@ -130,6 +133,7 @@ class SectionWithStatement:
 
 NAVIGATION_MULTILIT_KEY = "multilit_navigation_container"
 LOADER_MULTILIT_KEY = "multilit_loader_container"
+
 
 class Multilit:
     """
@@ -148,35 +152,30 @@ class Multilit:
     #     return jwt.decode(token, self._multilit_url_hash, algorithms=["HS256"])
 
     def __init__(
-        self,
-        title='Multilit Apps',
-        nav_container=None,
-        nav_horizontal=True,
-        layout: Layout = "wide",
-        favicon="🤹‍♀️",
-        use_st_navigation_navbar=None,
-        use_st_navigation=None,
-        navbar_theme=None,
-        navbar_sticky=True,
-        navbar_mode: NavbarPositionType = 'under',
-        use_cookie_cache=True,
-        sidebar_state: InitialSideBarState = 'auto',
-        # allow_url_nav=False,
-        hide_streamlit_markers=False,
-        use_banner_images=None,
-        banner_spacing=None,
-        clear_cross_page_sessions=True,
-        session_params=None,
-        verbose=False,
-        within_fragment=False,
-        login_info_session_key="logged_in",
-        navigation_theme_changer=True,
-        allowed_origins=None,
-        use_loader=True,
-        loader_lib: LoadersLib | Callable[..., Tuple[str, str ,str], ] | None = None,
-        only_loading_between_pages: bool = True,
-        loader: LoaderType = None, default_loader_params: Dict[str, Any] = None,
-        **kwargs
+            self,
+            title='Multilit Apps',
+            nav_container=None,
+            layout: Layout = "wide",
+            favicon="🤹‍♀️",
+            use_st_navigation_navbar=None,
+            use_st_navigation=None,
+            navbar_theme=None,
+            navbar_sticky=True,
+            navbar_mode: NavbarPositionType = 'under',
+            sidebar_state: InitialSideBarState = 'auto',
+            hide_streamlit_markers=False,
+            clear_cross_page_sessions=False,
+            session_params=None,
+            verbose=False,
+            within_fragment=False,
+            login_info_session_key="logged_in",
+            navigation_theme_changer=True,
+            allowed_origins=None,
+            use_loader=False,
+            loader_lib: LoadersLib | Callable[..., Tuple[str, str, str],] | None = None,
+            only_loading_between_pages: bool = True,
+            loader: Optional[BaseLoader] = None, default_loader_params: Dict[str, Any] = None,
+            **kwargs
     ):
         """
         Initializes a Multi-page Streamlit application that allows combining several pages into a single interface, managing navigation, global state, and authentication.
@@ -187,8 +186,6 @@ class Multilit:
             Title of the main application (appears in the browser tab).
         nav_container : streamlit.container, optional
             Container where the navigation bar is rendered. If None, a default one is created.
-        nav_horizontal : bool, optional (default True)
-            If True, navigation items are aligned horizontally; if False, vertically.
         layout : Layout, optional (default "wide")
             Layout of the main Streamlit page.
         favicon : str, optional (default "🤹‍♀️")
@@ -203,17 +200,11 @@ class Multilit:
             If True, the navigation bar remains fixed at the top.
         navbar_mode : NavbarPositionType, optional (default 'under')
             Position of the navigation bar: 'top', 'under', 'side', etc.
-        use_cookie_cache : bool, optional (default True)
-            If True, uses cookies to store user access state.
         sidebar_state : InitialSideBarState, optional (default 'auto')
             Initial state of the Streamlit sidebar.
         hide_streamlit_markers : bool, optional (default False)
             Hides the Streamlit menu and watermark.
-        use_banner_images : str or list, optional
-            Image or list of images to display as a banner above the navigation bar.
-        banner_spacing : list, optional
-            Spacing of the banner images (similar to Streamlit column specification).
-        clear_cross_page_sessions : bool, optional (default True)
+        clear_cross_page_sessions : bool, optional (default False)
             If True, clears session state when changing pages.
         session_params : dict, optional
             Dictionary of additional parameters for the global session state.
@@ -286,30 +277,24 @@ class Multilit:
         self._nav_item_count = 0
 
         if use_st_navigation_navbar is not None:
-            logger.warning("The use_st_navigation_navbar parameter is deprecated, please use use_st_navigation instead.")
+            logger.warning(
+                "The use_st_navigation_navbar parameter is deprecated, please use use_st_navigation instead.")
 
             if use_st_navigation is None:
                 use_st_navigation = use_st_navigation_navbar
             else:
-                logger.warning("Both use_st_navigation_navbar and use_st_navigation parameters are set, using use_st_navigation value.")
+                logger.warning(
+                    "Both use_st_navigation_navbar and use_st_navigation parameters are set, using use_st_navigation value.")
 
         self._use_st_navigation = use_st_navigation
         self._navigation_theme_changer = navigation_theme_changer
         self._hide_streamlit_markers = hide_streamlit_markers
         self._navbar_theme = navbar_theme or DEFAULT_THEMES
 
-        self._banners = use_banner_images
-        self._banner_spacing = banner_spacing
-
-        self._use_cookie_cache = use_cookie_cache
-        self._cookie_manager = None
-
         self._session_attrs = {}
-        # self._call_queue = []
-        # self._other_nav = None
+
         # self._guest_name = 'guest'
         # self._guest_access = 1
-        # self._multilit_url_hash = 'mULTILIT|-HaShing==seCr8t'
         self._no_access_level = -1
 
         self._user_session_params = session_params
@@ -327,52 +312,29 @@ class Multilit:
         except Exception as e:
             pass
 
-        # Establecer el tema
-
-        self._nav_horizontal = nav_horizontal
-
-        # self._theme_change_container = st.container()
-
-        if self._banners is not None:
-            self._banner_container = st.container()
-
-        if nav_container is None:
-            self._nav_container = st.container(key=NAVIGATION_MULTILIT_KEY)
-        else:
-            # hack to stop the beta containers from running set_page_config before MultiApp gets a chance to.
-            # if we have a beta_columns container, the instance is delayed until the run() method is called, beta components, who knew!
-            if nav_container.__name__ in ['container']:
-                self._nav_container = nav_container()
-            else:
-                self._nav_container = nav_container
-
-        page_view = st.empty()
-        self._page_container = page_view.container()
+        self._nav_container = nav_container
+        self._page_view = None
 
         self._user_loader = use_loader
         self._only_loading_between_pages = only_loading_between_pages
         if self._user_loader:
-            self._default_loader = loader
             if loader is None:
-                self._loader_container = st.container(key=LOADER_MULTILIT_KEY)
-                with self._loader_container:
-                    st.markdown(
-                        f"<style>\ndiv:has(>.st-key-{LOADER_MULTILIT_KEY}){{\nheight: 0; position: absolute;\n}}\n</style>",
-                        unsafe_allow_html=True
-                    )
-                self._default_loader = LoadingEngine.get_default_loader(
-                    self._loader_container,
+                default_loader: DefaultLoader = LoadingEngine.get_default_loader(
+                    LOADER_MULTILIT_KEY,
                     loader_params=default_loader_params or {},
                     loader_lib=loader_lib
                 )
-            self._loading_engine = LoadingEngine(self._default_loader)
+            else:
+                default_loader: BaseLoader = loader
+
+            self._loading_engine = LoadingEngine(default_loader)
 
         self.cross_session_clear = clear_cross_page_sessions
 
         if clear_cross_page_sessions:
-            preserve_state = 0
+            preserve_state = False
         else:
-            preserve_state = 1
+            preserve_state = True
 
         self.login_info_session_key = login_info_session_key
         self._session_attrs = {
@@ -400,13 +362,13 @@ class Multilit:
             self.change_page(page)
 
     def add_page(
-        self,
-        page: StreamlitPage, title=None, icon: str | None = None,
-        page_type: Literal["normal", "home", "login", "settings", "account"] = "normal",
-        access_level: int | None = None,
-        with_loader: Optional[bool] = None,
-        page_loader: BaseLoader | None = None,
-        page_loader_kwargs: dict = None,
+            self,
+            page: StreamlitPage, title=None, icon: str | None = None,
+            page_type: Literal["normal", "home", "login", "settings", "account"] = "normal",
+            access_level: int | None = None,
+            with_loader: Optional[bool] = None,
+            page_loader: BaseLoader | None = None,
+            page_loader_kwargs: dict = None,
     ):
         """
         Adds a new page to this MultiApp.
@@ -438,13 +400,13 @@ class Multilit:
         if with_loader is None:
             with_loader = self._user_loader
 
-        app_wrapper = STPageWrapper(
-            page, with_loader=with_loader,
-            loading_engine=LoadingEngine(
-                page_loader or self._default_loader.recreate_loader_with(label=title),
-                loader_kwargs=page_loader_kwargs
+        if page_loader or self._user_loader:
+            page_loader: BaseLoader
+            self._loading_engine.register_page_loader(
+                page_id, page_loader or self._loading_engine.selected_loader, run_loader_kwargs=page_loader_kwargs
             )
-        )
+
+        app_wrapper = STPageWrapper(page, with_loader=with_loader)
         app_wrapper.access_level = access_level
         app_wrapper.id = page_id
         app_wrapper.title = title
@@ -487,7 +449,9 @@ class Multilit:
         self._nav_item_count = int(self._login_page is not None) + len(self._pages.keys())
         # app.assign_session(st.session_state, self)
 
-    def page(self, title=None, icon=None, page_type: Literal["normal", "home", "login", "settings", "account"] = "normal", with_loader: Optional[bool] = None, page_loader: Optional[BaseLoader] = None):
+    def page(self, title=None, icon=None,
+             page_type: Literal["normal", "home", "login", "settings", "account"] = "normal",
+             with_loader: Optional[bool] = None, page_loader: Optional[BaseLoader] = None):
         """
         This is a decorator to quickly add a function as a child app in a style like a Flask route.
         You can do everything you can normally do when adding a class based MultiApp to the parent, except you can not add a login or unsecure app using this method, as
@@ -520,7 +484,8 @@ class Multilit:
                 is_default = True
 
             wrapped_app = st.Page(func, title=page_title, icon=app_icon, default=is_default)
-            self.add_page(title=page_title, page=wrapped_app, icon=app_icon, page_type=page_type, with_loader=with_loader, page_loader=page_loader)
+            self.add_page(title=page_title, page=wrapped_app, icon=app_icon, page_type=page_type,
+                          with_loader=with_loader, page_loader=page_loader)
 
             return func
 
@@ -562,11 +527,12 @@ class Multilit:
 
         return page
 
-    def build_native_pages_data_from(self, home_page, login_page=None, account_page=None, settings_page=None, logout_page=None):
+    def build_native_pages_data_from(self, home_page, login_page=None, account_page=None, settings_page=None,
+                                     logout_page=None):
         native_pages_data = {}
         if home_page is not None:
             native_pages_data[""] = [home_page]
-        
+
         for sect, data in self._complex_nav.items():
             if sect.startswith("sect_"):
                 data_section: dict = data
@@ -577,29 +543,33 @@ class Multilit:
                 if "" not in native_pages_data:
                     native_pages_data[""] = []
                 native_pages_data[""].append(data_page)
-        
+
         if any([login_page, account_page, settings_page]):
             native_pages_data["Account"] = []
             for page in [account_page, settings_page, logout_page]:
                 if page is not None:
                     native_pages_data["Account"].append(page)
-        
+
         return native_pages_data
 
     @st.fragment
-    def _fragment_navbar(self, natives_page_data, login_page, account_page, settings_page, logout_page, styles: str | None = None):
-        new_page_id = self._standalone_navbar(natives_page_data, login_page, account_page, settings_page, logout_page, styles=styles)
+    def _fragment_navbar(self, natives_page_data, login_page, account_page, settings_page, logout_page,
+                         styles: str | None = None):
+        new_page_id = self._standalone_navbar(natives_page_data, login_page, account_page, settings_page, logout_page,
+                                              styles=styles)
 
         return new_page_id
 
-    def _standalone_navbar(self, natives_page_data, login_page, account_page, settings_page, logout_page, styles: str | None = None) -> StreamlitPage:
+    def _standalone_navbar(self, natives_page_data, login_page, account_page, settings_page, logout_page,
+                           styles: str | None = None) -> StreamlitPage:
         page = st_navigation(
             natives_page_data,
             section_info={
                 "Reports": {"icon": ":material/assessment:"},
                 "Tools": {"icon": ":material/extension:"}
             },
-            position_mode=self._navbar_mode if self._check_login_callback() else "hidden", sticky_nav=self._navbar_sticky,
+            position_mode=self._navbar_mode if self._check_login_callback() else "hidden",
+            sticky_nav=self._navbar_sticky,
             login_page=login_page, logout_page=logout_page,
             account_page=account_page,
             settings_page=settings_page,
@@ -609,8 +579,6 @@ class Multilit:
             themes_data=self._navbar_theme,
             theme_changer=self._navigation_theme_changer
         )
-        if self.cross_session_clear and st.session_state["multilit_preserve_state"]:
-            self._clear_session_values()
 
         return page
 
@@ -673,11 +641,13 @@ class Multilit:
                 }}
                 """
 
-        styles = base_styles+styles
+        styles = base_styles + styles
         if self._within_fragment:
-            page = self._fragment_navbar(natives_page_data, login_page, account_page, settings_page, logout_page, styles=styles)
+            page = self._fragment_navbar(natives_page_data, login_page, account_page, settings_page, logout_page,
+                                         styles=styles)
         else:
-            page = self._standalone_navbar(natives_page_data, login_page, account_page, settings_page, logout_page, styles=styles)
+            page = self._standalone_navbar(natives_page_data, login_page, account_page, settings_page, logout_page,
+                                           styles=styles)
 
             # TODO: Send COI message to the component to update properly if willUmounted
             # set_page_id_visual("mainMultilitNavbar", new_app_id)
@@ -731,10 +701,9 @@ class Multilit:
             )
         raise e
 
-    def _run_selected(self, page: STPageWrapper, has_loading=False):
+    def _run_selected(self, page: STPageWrapper, need_trigger_loading=False):
         page_label = page.title
         try:
-            # print("Running", app_label)
             if self._verbose and st.session_state["multilit_uncaught_error"]:
                 st.error(
                     f'😭 Error triggered from page: **{page_label}**\n\n'
@@ -743,19 +712,12 @@ class Multilit:
                     icon="🚨"
                 )
 
-            # with self._theme_change_container:
-            #     self._run_change_theme()
-
-            if page.has_loading() and has_loading:
-                loading_engine = self._loading_engine
-                if page.loading_engine is not None:
-                    loading_engine = page.loading_engine
-                
-                with loading_engine.loading(label=page_label):
-                    with self._page_container:
+            if page.has_loading() and need_trigger_loading:
+                with self._loading_engine.loading(page.id, label=page_label):
+                    with self._page_view:
                         page.run()
             else:
-                with self._page_container:
+                with self._page_view:
                     page.run()
 
             st.session_state["multilit_uncaught_error"] = None
@@ -764,7 +726,13 @@ class Multilit:
 
     def _clear_session_values(self):
         for key in st.session_state:
-            del st.session_state[key]
+            if (
+                not key.startswith("multilit_") and
+                key != self.login_info_session_key and
+                not key.startswith(NAVIGATION_KEY_PREFIX) and
+                not key.startswith(NAVBAR_KEY_PREFIX)
+            ):
+                del st.session_state[key]
 
     def set_guest(self, guest_name):
         """
@@ -790,7 +758,7 @@ class Multilit:
         if no_access_level is not None:
             self._no_access_level = int(no_access_level)
 
-    def set_access(self, allow_access=0, access_user='', cache_access=False):
+    def set_access(self, allow_access=0, access_user=''):
         """
         Set the access permission and the assigned username for that access during the current session.
         Parameters
@@ -799,8 +767,6 @@ class Multilit:
             Value indicating if access has been granted, can be used to create levels of permission.
         access_user: str, None
             The username the access has been granted to for this session.
-        cache_access: bool, False
-            Save these access details to a browser cookie so the user will auto login when they visit next time.
         """
 
         # Set the global access flag
@@ -837,72 +803,7 @@ class Multilit:
         if user_access_level == 0 and username is None:
             self.set_access(guest_access_level, guest_username)
 
-    # def get_cookie_manager(self):
-    #     if self._use_cookie_cache and self._cookie_manager is not None:
-    #         return self._cookie_manager
-    #     else:
-    #         return None
-
-    # def _delete_cookie_cache(self):
-    #     if self._use_cookie_cache and self._cookie_manager is not None:
-    #         username_cache = self._cookie_manager.get('hyusername')
-    #         accesslevel_cache = self._cookie_manager.get('hyaccesslevel')
-
-    #         if username_cache is not None:
-    #             self._cookie_manager.delete('hyusername')
-
-    #         if accesslevel_cache is not None:
-    #             self._cookie_manager.delete('hyaccesslevel')
-
-    # def _write_cookie_cache(self,hyaccesslevel,hyusername):
-    #     if self._use_cookie_cache and self._cookie_manager is not None:
-    #         if hyaccesslevel is not None and hyusername is not None:
-    #             self._cookie_manager.set('hyusername',hyusername)
-    #             self._cookie_manager.set('hyaccesslevel',hyaccesslevel)
-
-    # def _read_cookie_cache(self):
-    #     if self._use_cookie_cache and self._cookie_manager is not None:
-    #         username_cache = self._cookie_manager.get('hyusername')
-    #         accesslevel_cache = self._cookie_manager.get('hyaccesslevel')
-
-    #         if username_cache is not None and accesslevel_cache is not None:
-    #             self.set_access(int(accesslevel_cache), str(username_cache))
-
-    def run(self):
-        """
-        This method is the entry point for the MultiApp, just like a single Streamlit page, you simply setup the additional apps and then call this method to begin.
-        """
-        # process url navigation parameters
-        # self._do_url_params()
-
-        if self._banners is not None:
-            if isinstance(self._banners, str):
-                self._banners = [self._banners]
-
-            if self._banner_spacing is not None and len(self._banner_spacing) == len(self._banners):
-                cols = self._banner_container.columns(self._banner_spacing)
-                for idx, im in enumerate(self._banners):
-                    if im is not None:
-                        if isinstance(im, Dict):
-                            cols[idx].markdown(
-                                next(iter(im.values())), unsafe_allow_html=True)
-                        else:
-                            cols[idx].image(im)
-            else:
-                if self._banner_spacing is not None and len(self._banner_spacing) != len(self._banners):
-                    logger.warning(
-                        'Banner spacing spec is a different length to the number of banners supplied, using even spacing for each banner.'
-                    )
-
-                cols = self._banner_container.columns([1] * len(self._banners))
-                for idx, im in enumerate(self._banners):
-                    if im is not None:
-                        if isinstance(im, Dict):
-                            cols[idx].markdown(
-                                next(iter(im.values())), unsafe_allow_html=True)
-                        else:
-                            cols[idx].image(im)
-
+    def _main(self):
         page = self._build_run_nav_menu()
         page_id = self.get_page_id(page)
         # Verifico la autenticacion (self.login_info_session_key) y la autorizacion (allow_access)
@@ -932,8 +833,24 @@ class Multilit:
                 raise ValueError(f"App id {page_id} not found in the list of apps")
 
             # Llegado a este punto, se ejecuta la pagina seleccionada
-            has_loading = (has_changed_page() and self._only_loading_between_pages) or not self._only_loading_between_pages
-            self._run_selected(page_wrapper, has_loading=has_loading)
+            page_changed = has_changed_page()
+            if page_changed:
+                if self.cross_session_clear and not st.session_state["multilit_preserve_state"]:
+                    self._clear_session_values()
+
+            has_loading = (page_changed and self._only_loading_between_pages) or not self._only_loading_between_pages
+            self._run_selected(page_wrapper, need_trigger_loading=has_loading)
+
+    def run(self):
+        """
+        This method is the entry point for the MultiApp, just like a single Streamlit page, you simply setup the additional apps and then call this method to begin.
+        """
+        if self._nav_container is None:
+            self._nav_container = st.container(key=NAVIGATION_MULTILIT_KEY)
+
+        self._page_view = st.container()
+
+        self._main()
 
     def default_home_dashboard(self):
         def default_home_wrapper():

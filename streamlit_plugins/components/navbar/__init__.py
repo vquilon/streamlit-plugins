@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 NavbarPositionType = Literal["top", "under", "side", "static", "hidden"]
 
+NAVIGATION_KEY_PREFIX = "__navigation"
+NAVBAR_KEY_PREFIX = "__navbar"
+NAVIGATION_COMPONENT_KEY = "navigation-component"
 GAP_BETWEEN_COMPS = 1
 TOP_SIDE_ELEMENTS_MARGIN = 1.05
 TOP_SIDE_ELEMENTS_WIDTH = 4
@@ -641,11 +644,11 @@ def st_navbar(
             # Mostrar un warning de python de que no tendra efecto
             warnings.warn("The sticky_nav parameter will have no effect when calling st_navbar directly")
 
-    if "navbar_coi_instance" not in st.session_state:
-        st.session_state.navbar_coi_instance = False
+    if f"{NAVBAR_KEY_PREFIX}_coi_instance" not in st.session_state:
+        st.session_state[f"{NAVBAR_KEY_PREFIX}_coi_instance"] = False
 
-    if "navbar_st_styles_loaded" not in st.session_state:
-        st.session_state.navbar_st_styles_loaded = False
+    if f"{NAVBAR_KEY_PREFIX}_st_styles_loaded" not in st.session_state:
+        st.session_state[f"{NAVBAR_KEY_PREFIX}_st_styles_loaded"] = False
 
     if is_navigation:
         if themes_data is None and theme_changer:
@@ -655,8 +658,8 @@ def st_navbar(
     else:
         theme_changer = False
 
-    navbar_view = st.container(key=f"{key}_container_navbar")
-    coi_styles_view = st.container(key=f"{key}_container_coi_styles")
+    navbar_view = st.container(key=f"{NAVBAR_KEY_PREFIX}_{key}_container_navbar")
+    coi_styles_view = st.container(key=f"{NAVBAR_KEY_PREFIX}_{key}_container_coi_styles")
 
     # https://github.com/SnpM/streamlit-scroll-navigation
     with coi_styles_view:
@@ -722,17 +725,17 @@ def st_navbar(
         default_page_selected_id = override_page_selected_id
 
     input_styles = input_styles or ""
-    styles = f"\ndiv:has(> .st-key-{key}_container_coi_styles) {{\nheight: 0;\nposition: absolute;\n}}\n"
-    if not st.session_state.navbar_st_styles_loaded:
+    styles = f"\ndiv:has(> .st-key-{NAVBAR_KEY_PREFIX}_{key}_container_coi_styles) {{\nheight: 0;\nposition: absolute;\n}}\n"
+    if not st.session_state.get(f"{NAVBAR_KEY_PREFIX}_st_styles_loaded", False):
         styles += load_st_styles()
         with coi_styles_view:
             st.markdown(f"<style>\n{input_styles}\n{styles}\n<style>", unsafe_allow_html=True)
 
-    # if not st.session_state.navbar_coi_instance:
+    # if not st.session_state.get(f"{NAVBAR_KEY_PREFIX}_coi_instance", False):
     # styles = load_st_styles()
     with coi_styles_view:
         instantiate_crossorigin_interface(_component_func.name, key, is_navigation, default_page_selected_id, position_mode, sticky_nav)
-        st.session_state.navbar_coi_instance = True
+        st.session_state[f"{NAVBAR_KEY_PREFIX}_coi_instance"] = True
 
     with navbar_view:
         component_value = _component_func(
@@ -771,7 +774,7 @@ def st_navbar(
     return component_value
 
 def st_which_page() -> str:
-    return st.session_state["navigation_page_id"]
+    return st.session_state[f"{NAVIGATION_KEY_PREFIX}_page_id"]
 
 def st_navigation(
     pages: list[StreamlitPage] | dict[str, list[StreamlitPage]],
@@ -785,23 +788,28 @@ def st_navigation(
     input_styles: str | None = None,
     themes_data: list[dict]| None = None,
     theme_changer: bool = True,
-    prefix_url: str = "",
-    key="NavigationComponent",
+    prefix_url: str = ""
 ) -> StreamlitPage:
-    if "navigation_prev_url_page_id" not in st.session_state:
-        st.session_state.navigation_prev_url_page_id = None
+    prev_url_page_id_key = f"{NAVIGATION_KEY_PREFIX}_prev_url_page_id"
+    prev_page_id_key = f"{NAVIGATION_KEY_PREFIX}_prev_page_id"
+    page_id_key = f"{NAVIGATION_KEY_PREFIX}_page_id"
+    force_page_id_key = f"{NAVIGATION_KEY_PREFIX}_force_page_id"
+    history_key = f"{NAVIGATION_KEY_PREFIX}_history"
 
-    if "navigation_prev_page_id" not in st.session_state:
-        st.session_state.navigation_prev_page_id = None
+    if prev_url_page_id_key not in st.session_state:
+        st.session_state[prev_url_page_id_key] = None
 
-    if "navigation_page_id" not in st.session_state:
-        st.session_state.navigation_page_id = None
+    if prev_page_id_key not in st.session_state:
+        st.session_state[prev_page_id_key] = None
 
-    if "navigation_force_page_id" not in st.session_state:
-        st.session_state.navigation_force_page_id = None
+    if page_id_key not in st.session_state:
+        st.session_state[page_id_key] = None
 
-    if "navigation_history" not in st.session_state:
-        st.session_state.navigation_history = []
+    if force_page_id_key not in st.session_state:
+        st.session_state[force_page_id_key] = None
+
+    if history_key not in st.session_state:
+        st.session_state[history_key] = []
 
     # Build state
     # {
@@ -883,41 +891,41 @@ def st_navigation(
         logout_page=logout_page,
     )
 
-    st.session_state["navigation_menu_pages"] = menu_pages
-    st.session_state["navigation_menu_account_pages"] = menu_account_pages
-    st.session_state["navigation_default_page_id"] = default_page._script_hash
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_menu_pages"] = menu_pages
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_menu_account_pages"] = menu_account_pages
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"] = default_page._script_hash
 
     logout_page_id, login_page_id = None, None
     if login_page:
         login_page_id = login_page._script_hash
-        st.session_state["navigation_login_page_id"] = login_page_id
-    
+        st.session_state[f"{NAVIGATION_KEY_PREFIX}_login_page_id"] = login_page_id
+
     if logout_page:
         logout_page_id = logout_page._script_hash
-        st.session_state["navigation_logout_page_id"] = logout_page_id
+        st.session_state[f"{NAVIGATION_KEY_PREFIX}_logout_page_id"] = logout_page_id
 
     if account_page:
         account_page_id = account_page._script_hash
-        st.session_state["navigation_account_page_id"] = account_page_id
+        st.session_state[f"{NAVIGATION_KEY_PREFIX}_account_page_id"] = account_page_id
 
     if settings_page:
         settings_page_id = settings_page._script_hash
-        st.session_state["navigation_settings_page_id"] = settings_page_id
+        st.session_state[f"{NAVIGATION_KEY_PREFIX}_settings_page_id"] = settings_page_id
 
 
-    st.session_state["navigation_page_map"] = pages_map
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_page_map"] = pages_map
 
 
-    if st.session_state["navigation_page_id"] is None:
-        st.session_state["navigation_page_id"] = st.session_state["navigation_default_page_id"]
-    
+    if st.session_state[page_id_key] is None:
+        st.session_state[page_id_key] = st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"]
+
     next_page_id = st_navbar(
         menu_definition=menu_pages,  # if st.session_state.logged_in else [],
         home_definition=home_definition,
         login_definition=menu_account_pages,
         hide_streamlit_markers=False,
-        default_page_selected_id=st.session_state["navigation_page_id"] or st.session_state["navigation_default_page_id"],
-        override_page_selected_id=st.session_state["navigation_force_page_id"],
+        default_page_selected_id=st.session_state[page_id_key] or st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"],
+        override_page_selected_id=st.session_state[force_page_id_key],
         position_mode=position_mode,
         sticky_nav=sticky_nav,
         input_styles=input_styles,
@@ -925,11 +933,11 @@ def st_navigation(
         theme_changer=theme_changer,
         prefix_url=prefix_url,
         # url_navigation=native_way,  # and url_navigation,
-        key=key,
+        key=NAVIGATION_COMPONENT_KEY,
     )
-    st.session_state["navigation_force_page_id"] = None
-    prev_page_id = st.session_state["navigation_page_id"]
-    st.session_state["navigation_page_id"] = next_page_id  # Added to fix login/logout issue
+    st.session_state[force_page_id_key] = None
+    prev_page_id = st.session_state[page_id_key]
+    st.session_state[page_id_key] = next_page_id  # Added to fix login/logout issue
     # print("CUSTOM COMPONENT", pages_map[next_page_id].title)
     if native_way:
         # Si la url es el path igual al que devuelve el `next_page_id` quiere decir que la navegacion es por url
@@ -940,11 +948,11 @@ def st_navigation(
         #         pages_map, st.context.url, prefix_url=prefix_url
         #     )
         #     # print("URL PAGE", pages_map[url_page_id].title)
-        #     if url_page_id != st.session_state["navigation_prev_url_page_id"]:
+        #     if url_page_id != st.session_state[f"{NAVIGATION_KEY_PREFIX}_prev_url_page_id"]:
         #         # Navegacion por url
         #         # Give enough time to the custom component to update
         #         time.sleep(0.1)
-        #         st.session_state["navigation_prev_url_page_id"] = url_page_id
+        #         st.session_state[f"{NAVIGATION_KEY_PREFIX}_prev_url_page_id"] = url_page_id
         #         next_page_id = url_page_id
 
         page = st.navigation(
@@ -960,9 +968,9 @@ def st_navigation(
 
     # Solo si se cambia de pagina
     if prev_page_id != next_page_id:
-        st.session_state["navigation_page_id"] = next_page_id
+        st.session_state[page_id_key] = next_page_id
         if prev_page_id not in [logout_page_id, login_page_id]:
-            st.session_state["navigation_prev_page_id"] = prev_page_id
+            st.session_state[prev_page_id_key] = prev_page_id
         st_switch_page(next_page_id, native_way=native_way)
 
     page._can_be_called = True
@@ -970,19 +978,20 @@ def st_navigation(
     return page
 
 def add_page_to_history(page_id: str):
-    if "navigation_history" not in st.session_state:
-        st.session_state["navigation_history"] = []
+    history_key = f"{NAVIGATION_KEY_PREFIX}_history"
+    if history_key not in st.session_state:
+        st.session_state[history_key] = []
 
-    if len(st.session_state.navigation_history) > 0:
-        last_page_id, runs =  st.session_state.navigation_history[-1].split("::")
+    if len(st.session_state[history_key]) > 0:
+        last_page_id, runs = st.session_state[history_key][-1].split("::")
         if page_id == last_page_id:
-            st.session_state.navigation_history[-1] = f"{page_id}::{int(runs) + 1}"
+            st.session_state[history_key][-1] = f"{page_id}::{int(runs) + 1}"
             return
 
-    st.session_state.navigation_history.append(f"{page_id}::1")
+    st.session_state[history_key].append(f"{page_id}::1")
 
 def has_changed_page() -> bool:
-    history = st.session_state.get("navigation_history", [])
+    history = st.session_state.get(f"{NAVIGATION_KEY_PREFIX}_history", [])
     if not history or len(history) < 2:
         return False
 
@@ -997,35 +1006,40 @@ def has_changed_page() -> bool:
         return False
 
 def set_default_page(page_id: str):
-    st.session_state["navigation_default_page_id"] = page_id
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"] = page_id
 
 def init_navigation_transition(prev_page_id: str, page_id: str):
-    if "navigation_prev_page_id" not in st.session_state:
-        st.session_state["navigation_prev_page_id"] = prev_page_id
-    if "navigation_page_id" not in st.session_state:
-        st.session_state["navigation_page_id"] = page_id
+    prev_page_key = f"{NAVIGATION_KEY_PREFIX}_prev_page_id"
+    page_key = f"{NAVIGATION_KEY_PREFIX}_page_id"
+    if prev_page_key not in st.session_state:
+        st.session_state[prev_page_key] = prev_page_id
+    if page_key not in st.session_state:
+        st.session_state[page_key] = page_id
 
 def set_navigation_transition(prev_page_id: str, page_id: str):
-    st.session_state["navigation_prev_page_id"] = prev_page_id
-    st.session_state["navigation_page_id"] = page_id
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_prev_page_id"] = prev_page_id
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_page_id"] = page_id
 
 def set_force_next_page(page_id: str):
-    st.session_state["navigation_force_page_id"] = page_id
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_force_page_id"] = page_id
 
 def get_navigation_transition() -> tuple[str, str]:
-    return st.session_state["navigation_prev_page_id"], st.session_state["navigation_page_id"]
+    return (
+        st.session_state[f"{NAVIGATION_KEY_PREFIX}_prev_page_id"],
+        st.session_state[f"{NAVIGATION_KEY_PREFIX}_page_id"],
+    )
 
 def st_switch_home(native_way: bool = False):
-    st_switch_page(st.session_state["navigation_default_page_id"], native_way=native_way)
+    st_switch_page(st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"], native_way=native_way)
 
 def st_switch_page(page_id: str, native_way: bool = False):
-    pages = st.session_state["navigation_page_map"]
+    pages = st.session_state[f"{NAVIGATION_KEY_PREFIX}_page_map"]
     page = pages.get(page_id, None)
     if page is None:
         raise ValueError(f"Page with id {page_id} not found")
 
     # add_page_to_history(page_id)
-    st.session_state["navigation_force_page_id"] = page_id
+    st.session_state[f"{NAVIGATION_KEY_PREFIX}_force_page_id"] = page_id
     if native_way:
         st.switch_page(page)
     else:
@@ -1041,7 +1055,7 @@ def st_switch_page(page_id: str, native_way: bool = False):
         #         raise RerunException(rerun_data)
 
 def get_pages_info() -> tuple[dict[str, str], str, list[dict], list[dict], str | None, str | None, str | None, str | None]:
-    pages = st.session_state["navigation_page_map"]
+    pages = st.session_state[f"{NAVIGATION_KEY_PREFIX}_page_map"]
 
     default_page = next(filter(lambda p: p._default, pages.values()), None)
     if default_page is None:
@@ -1049,12 +1063,12 @@ def get_pages_info() -> tuple[dict[str, str], str, list[dict], list[dict], str |
 
     default_page_id = default_page._script_hash
     
-    login_page_id = st.session_state.get("navigation_login_page_id", None)
-    logout_page_id = st.session_state.get("navigation_logout_page_id", None)
-    account_page_id = st.session_state.get("navigation_account_page_id", None)
-    settings_page_id = st.session_state.get("navigation_settings_page_id", None)
+    login_page_id = st.session_state.get(f"{NAVIGATION_KEY_PREFIX}_login_page_id", None)
+    logout_page_id = st.session_state.get(f"{NAVIGATION_KEY_PREFIX}_logout_page_id", None)
+    account_page_id = st.session_state.get(f"{NAVIGATION_KEY_PREFIX}_account_page_id", None)
+    settings_page_id = st.session_state.get(f"{NAVIGATION_KEY_PREFIX}_settings_page_id", None)
 
-    menu_pages = st.session_state["navigation_menu_pages"]
-    menu_account_pages = st.session_state["navigation_menu_account_pages"]
+    menu_pages = st.session_state[f"{NAVIGATION_KEY_PREFIX}_menu_pages"]
+    menu_account_pages = st.session_state[f"{NAVIGATION_KEY_PREFIX}_menu_account_pages"]
 
     return pages, default_page_id, menu_pages, menu_account_pages, login_page_id, logout_page_id, account_page_id, settings_page_id
