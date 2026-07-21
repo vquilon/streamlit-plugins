@@ -370,6 +370,13 @@ body.nav-open div:has(> iframe[title="{_component_func.name}"]) {{
 }}
 """
 
+HIDE_SKELETON_STYLE = f"""
+div:has(> iframe[title="{_component_func.name}"]) [data-testid="stSkeleton"],
+div:has(> iframe[title="{_component_func.name}"]) .stSkeleton {{
+    display: none;
+}}
+"""
+
 # TODO: Hay que poner margenes en el iframe para que no ocupe el 100% de ancho si es menor la pantalla a 575
 
 MATERIAL_ICON_HOME = ":material/home:"
@@ -621,6 +628,7 @@ def st_navbar(
     input_styles: str | None = None,
     themes_data: list[dict]| None = None,
     theme_changer: bool = False,
+    hide_skeleton: bool = False,
     collapsible: bool = True,
     prefix_url: str = "",
     # url_navigation: bool = False,
@@ -728,6 +736,8 @@ def st_navbar(
     styles = f"\ndiv:has(> .st-key-{NAVBAR_KEY_PREFIX}_{key}_container_coi_styles) {{\nheight: 0;\nposition: absolute;\n}}\n"
     if not st.session_state.get(f"{NAVBAR_KEY_PREFIX}_st_styles_loaded", False):
         styles += load_st_styles()
+        if hide_skeleton:
+            styles += HIDE_SKELETON_STYLE
         with coi_styles_view:
             st.markdown(f"<style>\n{input_styles}\n{styles}\n<style>", unsafe_allow_html=True)
 
@@ -934,6 +944,7 @@ def st_navigation(
         prefix_url=prefix_url,
         # url_navigation=native_way,  # and url_navigation,
         key=NAVIGATION_COMPONENT_KEY,
+        hide_skeleton=True,
     )
     st.session_state[force_page_id_key] = None
     prev_page_id = st.session_state[page_id_key]

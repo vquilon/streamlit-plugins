@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     base_path = Path(__file__).parent
     demo_app = base_path / "app.py"
-    demo_app = base_path / "examples_basic.py"
+    # demo_app = base_path / "examples_basic.py"
     # demo_app = base_path / "example_dashboard.py"
-    # demo_app = base_path / "example_ecommerce.py"
+    demo_app = base_path / "example_streaming.py"
     bootstrap.run(str(demo_app), False, [], flag_options={})

@@ -22,6 +22,7 @@ Uso:
 import functools
 import hashlib
 import inspect
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Set
 
@@ -174,7 +175,7 @@ def _changed_keys_from_snapshots(before: dict[str, Any], after: dict[str, Any]) 
     changed: set[str] = set()
     all_keys = set(before.keys()) | set(after.keys())
     for key in all_keys:
-        if before.get(key) != after.get(key):
+        if not _values_equal(before.get(key), after.get(key)):
             changed.add(key)
     return changed
 
@@ -230,6 +231,38 @@ def _get_current_fragment_id() -> Optional[str]:
 # 🔄 CHANGE DETECTION
 # =============================================================================
 
+def _values_equal(left: Any, right: Any) -> bool:
+    """Compara valores escalares y array-like sin romper con pandas."""
+    if left is right:
+        return True
+
+    for candidate, other in ((left, right), (right, left)):
+        equals = getattr(candidate, "equals", None)
+        if callable(equals):
+            try:
+                return bool(equals(other))
+            except Exception:
+                pass
+
+    try:
+        result = left == right
+    except Exception:
+        return False
+
+    while not isinstance(result, bool):
+        all_method = getattr(result, "all", None)
+        if not callable(all_method):
+            break
+        try:
+            result = all_method()
+        except Exception:
+            break
+
+    try:
+        return bool(result)
+    except Exception:
+        return False
+
 def _compute_param_hash(params: dict) -> str:
     """Calcula un hash de los parámetros para detectar cambios"""
     try:
@@ -252,7 +285,7 @@ def _detect_param_changes(
 
     changed: Set[str] = set()
     for key, new_value in current_params.items():
-        if last_params.get(key) != new_value:
+        if not _values_equal(last_params.get(key), new_value):
             changed.add(key)
     for key in last_params:
         if key not in current_params:
@@ -594,7 +627,7 @@ def reactive_fragment(
             try:
                 result = func(*args, **kwargs)
             except Exception as e:
-                st.error(f"Error en fragmento **{fragment_name}**: {e}")
+                st.error(f"Error en fragmento **{fragment_name}**: {e}\n\n{traceback.format_exc()}")
                 result = None
 
             # Termina ejecución

@@ -184,8 +184,8 @@ def fragment_filter_data():
     raw_data = st.session_state.raw_data
 
     filtered = raw_data[
-        (raw_data['date'].dt.date >= date_from.date()) &
-        (raw_data['date'].dt.date <= date_to.date()) &
+        (raw_data['date'].dt.date >= date_from) &
+        (raw_data['date'].dt.date <= date_to) &
         (raw_data['region'].isin(regions))
     ]
 
@@ -231,6 +231,7 @@ def fragment_aggregate():
 
     # Agrega por fecha
     aggregated = filtered_data.groupby('date')[column].sum().reset_index()
+    aggregated = aggregated.rename(columns={column: metric})
     aggregated = aggregated.sort_values('date')
 
     st.session_state.aggregated_data = aggregated
@@ -326,14 +327,14 @@ def fragment_charts():
         # Line chart
         st.line_chart(
             data.set_index('date')[metric],
-            use_container_width=True
+            width="content"
         )
 
     with col2:
         # Area chart
         st.area_chart(
             data.set_index('date')[metric],
-            use_container_width=True
+            width="content"
         )
 
 
@@ -367,7 +368,7 @@ def fragment_detailed_table():
     # Muestra tabla con opciones
     st.dataframe(
         display_data,
-        use_container_width=True,
+        width="content",
         hide_index=True,
         column_config={
             'revenue': st.column_config.NumberColumn(
@@ -429,19 +430,18 @@ def main():
 
     st.title("📊 Analytics Dashboard - Reactive Fragments")
 
-    st.markdown("""
-    Dashboard que demuestra el framework reactivo de Streamlit.
-    
-    **Cómo funciona:**
-    1. Cambia los filtros → Se actualiza automáticamente
-    2. Cada cambio dispara una cascada de fragmentos
-    3. Los gráficos se actualizan sin refrescar la página completa
-    
-    **Fragmentos:**
-    - Controles → Filtrado → Agregación → Métricas & Gráficos
-    """)
-
-    st.divider()
+    with st.sidebar:
+        st.markdown("""
+        Dashboard que demuestra el framework reactivo de Streamlit.
+        
+        **Cómo funciona:**
+        1. Cambia los filtros → Se actualiza automáticamente
+        2. Cada cambio dispara una cascada de fragmentos
+        3. Los gráficos se actualizan sin refrescar la página completa
+        
+        **Fragmentos:**
+        - Controles → Filtrado → Agregación → Métricas & Gráficos
+        """)
 
     # FRAGMENTO 1: Controles
     fragment_filters()
@@ -453,8 +453,6 @@ def main():
 
     # FRAGMENTO 3: Agregación (no visible, solo actualiza state)
     fragment_aggregate()
-
-    st.divider()
 
     # FRAGMENTO 4: Métricas
     fragment_metrics()
@@ -483,4 +481,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

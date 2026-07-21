@@ -6,6 +6,7 @@ Ejecutar con:
 """
 
 import pytest
+import pandas as pd
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
@@ -189,6 +190,40 @@ def test_param_change_detection():
 
     assert has_changes2
     assert 'b' in changed2
+
+
+def test_snapshot_change_detection_with_dataframes():
+    """Test detección de cambios con DataFrames"""
+    from streamlit_plugins.framework.reactlit.reactlit import (
+        _changed_keys_from_snapshots,
+    )
+
+    before = {'df': pd.DataFrame({'a': [1, 2]})}
+    after_same = {'df': pd.DataFrame({'a': [1, 2]})}
+    after_changed = {'df': pd.DataFrame({'a': [1, 3]})}
+
+    assert _changed_keys_from_snapshots(before, after_same) == set()
+    assert _changed_keys_from_snapshots(before, after_changed) == {'df'}
+
+
+def test_param_change_detection_with_dataframes():
+    """Test watch_params con DataFrames"""
+    from streamlit_plugins.framework.reactlit.reactlit import (
+        _detect_param_changes,
+        _get_or_init_fragment_state,
+    )
+
+    fragment_name = "test_detect_df"
+    state = _get_or_init_fragment_state(fragment_name)
+    state['last_rendered_params'] = {'df': pd.DataFrame({'a': [1, 2]})}
+
+    has_changes, changed = _detect_param_changes(
+        fragment_name,
+        {'df': pd.DataFrame({'a': [1, 2]})}
+    )
+
+    assert not has_changes
+    assert changed == set()
 
 
 # =============================================================================
@@ -424,4 +459,3 @@ if __name__ == "__main__":
     test_nonexistent_fragment_rerun()
 
     print("\n✅ All tests passed!")
-

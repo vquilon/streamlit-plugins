@@ -22,13 +22,17 @@ Uso:
 import functools
 import hashlib
 import inspect
+import traceback
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Optional, Set
 
 import streamlit as st
 from streamlit.commands.execution_control import _new_fragment_id_queue
 from streamlit.runtime.scriptrunner import get_script_run_ctx, RerunData
 
+if "__debug_reactlit" not in st.session_state:
+    st.session_state["__debug_reactlit"] = False
 
 # =============================================================================
 # 🏗️ CORE DATA STRUCTURES
@@ -45,6 +49,13 @@ class FragmentMetadata:
     delta_path: Optional[str] = None
     fragment_id: Optional[str] = None
     is_dirty: bool = False
+
+    def to_table_data(self):
+        return {
+            "name": self.name,
+            "dependencies": self.dependencies,
+            "dependents": self.dependents
+        }
 
 
 @dataclass
@@ -112,6 +123,13 @@ _GLOBAL_GRAPH: DependencyGraph = DependencyGraph()
 _FRAGMENT_ID_TO_NAME: dict[str, str] = {}
 
 
+def set_debug(state: bool):
+    st.session_state["__debug_reactlit"] = state
+
+
+def get_debug() -> bool:
+    return st.session_state.get("__debug_reactlit", False)
+
 def _get_session_graph() -> dict:
     """Obtiene o crea el estado del grafo en session_state"""
     if '_reactive_graph_state' not in st.session_state:
@@ -174,7 +192,7 @@ def _changed_keys_from_snapshots(before: dict[str, Any], after: dict[str, Any]) 
     changed: set[str] = set()
     all_keys = set(before.keys()) | set(after.keys())
     for key in all_keys:
-        if before.get(key) != after.get(key):
+        if not _values_equal(before.get(key), after.get(key)):
             changed.add(key)
     return changed
 
@@ -230,6 +248,38 @@ def _get_current_fragment_id() -> Optional[str]:
 # 🔄 CHANGE DETECTION
 # =============================================================================
 
+def _values_equal(left: Any, right: Any) -> bool:
+    """Compara valores escalares y array-like sin romper con pandas."""
+    if left is right:
+        return True
+
+    for candidate, other in ((left, right), (right, left)):
+        equals = getattr(candidate, "equals", None)
+        if callable(equals):
+            try:
+                return bool(equals(other))
+            except Exception:
+                pass
+
+    try:
+        result = left == right
+    except Exception:
+        return False
+
+    while not isinstance(result, bool):
+        all_method = getattr(result, "all", None)
+        if not callable(all_method):
+            break
+        try:
+            result = all_method()
+        except Exception:
+            break
+
+    try:
+        return bool(result)
+    except Exception:
+        return False
+
 def _compute_param_hash(params: dict) -> str:
     """Calcula un hash de los parámetros para detectar cambios"""
     try:
@@ -252,7 +302,7 @@ def _detect_param_changes(
 
     changed: Set[str] = set()
     for key, new_value in current_params.items():
-        if last_params.get(key) != new_value:
+        if not _values_equal(last_params.get(key), new_value):
             changed.add(key)
     for key in last_params:
         if key not in current_params:
@@ -499,6 +549,7 @@ def _queue_fragment_rerun(fragment_name: str, reason: str = "") -> None:
 # =============================================================================
 
 def reactlit_fragment(
+    parallel: bool = False,
     dependencies: Optional[list[str]] = None,
     dependents: Optional[list[str]] = None,
     watch_params: bool = True,
@@ -508,6 +559,7 @@ def reactlit_fragment(
     Decorador para crear fragmentos reactivos.
 
     Args:
+        parallel: Si True, permite ejecución en paralelo (Streamlit fragment)
         dependencies: Session state keys o nombres de fragmentos que este observa
         dependents: Fragmentos que dependen de este (se registran como edges en el grafo)
         watch_params: Si True, detecta cambios en parámetros y encola dependientes
@@ -594,8 +646,11 @@ def reactlit_fragment(
             try:
                 result = func(*args, **kwargs)
             except Exception as e:
-                st.error(f"Error en fragmento **{fragment_name}**: {e}")
+                st.error(f"Error en fragmento **{fragment_name}**: {e}\n\n```\n{traceback.format_exc()}\n```")
                 result = None
+
+            if get_debug():
+                st.caption(datetime.now())
 
             # Termina ejecución
             graph_state['executing'].discard(fragment_name)
@@ -616,7 +671,7 @@ def reactlit_fragment(
 
             return result
 
-        return st.fragment(wrapper)
+        return st.fragment(wrapper, parallel=parallel)
 
     return decorator
 
@@ -670,22 +725,24 @@ def debug_dependency_graph() -> None:
         graph_state = _get_session_graph()
 
         st.write("**Fragmentos registrados:**")
+        data = []
         for name, meta in _GLOBAL_REGISTRY.items():
-            has_cycle = _GLOBAL_GRAPH.has_cycle(name)
-            cols = st.columns([2, 2, 2, 1])
-            cols[0].write(f"**{name}**")
-            cols[1].write(f"deps: {meta.dependencies or '—'}")
-            cols[2].write(f"dependents: {meta.dependents or '—'}")
-            cols[3].write("⚠️ cycle" if has_cycle else "✅")
+            row = meta.to_table_data()
+            row["has_cycle"] = _GLOBAL_GRAPH.has_cycle(name)
+            data.append(row)
 
-        st.write("**Cola de reruns:**", graph_state['rerun_queue'] or "vacía")
+        st.table(data)
+
+        st.write("**Cola de reruns:**", graph_state['rerun_queue'] or "—")
         st.write("**Ejecutando:**", graph_state['executing'] or "—")
         st.write("**Global reruns:**", graph_state['global_rerun_count'])
         st.write("**Ciclo detectado:**", graph_state['cycle_detected'])
 
         st.write("**Logs recientes:**")
-        for log in st.session_state.get('_reactive_framework_log', [])[-20:]:
-            st.text(log)
+        st.code(
+            "\n".join(st.session_state.get('_reactive_framework_log', [])),
+            height=200
+        )
 
 
 def reset_reactive_state() -> None:
