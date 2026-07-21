@@ -1052,7 +1052,7 @@ def st_switch_page(page_id: str, native_way: bool = False):
     # add_page_to_history(page_id)
     st.session_state[f"{NAVIGATION_KEY_PREFIX}_force_page_id"] = page_id
     if native_way:
-        st.switch_page(page)
+        st.switch_page(page, query_params=dict(st.query_params))
     else:
         st.rerun()
         # ctx = get_script_run_ctx()

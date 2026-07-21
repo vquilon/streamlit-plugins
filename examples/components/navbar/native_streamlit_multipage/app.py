@@ -179,7 +179,7 @@ page = st_navigation(
     native_way=native_way,
     # url_navigation=url_navigation
 )
-print(f"{page.title=}, {native_way=}, {sticky_nav=}, {position_mode=}")
+print(f"{page.title=}, {native_way=}, {sticky_nav=}, {position_mode=}, query_params={st.query_params}")
 print()
 
 if not st.session_state.logged_in and page._script_hash != login_page._script_hash:
