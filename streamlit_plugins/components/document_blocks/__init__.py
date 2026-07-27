@@ -70,8 +70,8 @@ __CSS = """
   bottom: 100%;
   left: -2px;
   color: #fff;
-  padding: 2px 6px;
-  font-size: 11px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
   font-weight: bold;
   white-space: nowrap;
   border-radius: 3px 3px 3px 0;
@@ -134,9 +134,9 @@ __CSS = """
 
 .filter-btn {
   border: 1px solid #ccc;
-  padding: 4px 10px;
+  padding: 0.25rem 0.5rem;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 0.875rem;
   font-weight: bold;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -247,6 +247,45 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+// ponytail: normalize bbox from polygon/bbox format or legacy x,y,w,h
+// converts pixel coords to % if document_size provided, otherwise returns as-is
+function extractBBoxCoords(box, docSize) {
+  let coords = null;
+  
+  if (box.bbox && Array.isArray(box.bbox)) {
+    // bbox format: [x, y, x2, y2]
+    coords = { x: box.bbox[0], y: box.bbox[1], x2: box.bbox[2], y2: box.bbox[3] };
+  } else if (box.polygon && Array.isArray(box.polygon) && box.polygon.length >= 2) {
+    // polygon format: [[x1,y1], [x2,y2], ...]
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    box.polygon.forEach(([x, y]) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    });
+    coords = { x: minX, y: minY, x2: maxX, y2: maxY };
+  } else if (box.x !== undefined && box.y !== undefined && box.w !== undefined && box.h !== undefined) {
+    // legacy format: x, y, w, h (assuming percentages)
+    coords = { x: box.x, y: box.y, x2: box.x + box.w, y2: box.y + box.h, isLegacy: true };
+  }
+  
+  if (!coords) return null;
+  
+  // normalize to percentages if docSize provided and coords are in pixels
+  if (docSize && docSize.width && docSize.height && !coords.isLegacy) {
+    const isPixel = coords.x > 100 || coords.y > 100 || coords.x2 > 100 || coords.y2 > 100;
+    if (isPixel) {
+      coords.x = (coords.x / docSize.width) * 100;
+      coords.y = (coords.y / docSize.height) * 100;
+      coords.x2 = (coords.x2 / docSize.width) * 100;
+      coords.y2 = (coords.y2 / docSize.height) * 100;
+    }
+  }
+  
+  return coords;
+}
+
 // Función auxiliar para gestionar la selección visual sin repintar todo el DOM
 function selectBox(boxElement) {
   // 1. Buscamos si hay algún elemento previamente seleccionado y le quitamos la clase
@@ -277,6 +316,9 @@ export default function(component) {
   if (svgParents) svgParents.innerHTML = '';
   if (!data || !data.blocks) return;
 
+  // 0. DOCUMENTO SIZE (para normalizar coordenadas en píxeles a porcentajes)
+  const docSize = data.document_size || null;
+
   // 1. EXTRAEMOS ESTILOS Y CONFIGURACIÓN GLOBAL
   const boxStyles = data.styles && data.styles.blocks ? data.styles.blocks : {};
   const normalAlpha = boxStyles.normalAlpha !== undefined ? boxStyles.normalAlpha : 0.15;
@@ -299,13 +341,20 @@ export default function(component) {
 
   // 2. CREACIÓN DE CAJAS Y SVGs LOCALES (HIJOS)
   data.blocks.forEach(parentBox => {
+    const pCoords = extractBBoxCoords(parentBox, docSize);
+    if (!pCoords) return;
+    
     const group = document.createElement('div');
     group.className = 'bbox-group';
     group.style.position = 'absolute';
-    group.style.left = `${parentBox.x}%`;
-    group.style.top = `${parentBox.y}%`;
-    group.style.width = `${parentBox.w}%`;
-    group.style.height = `${parentBox.h}%`;
+    const pW = pCoords.x2 - pCoords.x;
+    const pH = pCoords.y2 - pCoords.y;
+    const isPercent = true;
+    const unit = '%';
+    group.style.left = `${pCoords.x}${unit}`;
+    group.style.top = `${pCoords.y}${unit}`;
+    group.style.width = `${pW}${unit}`;
+    group.style.height = `${pH}${unit}`;
 
     // --- CAJA PADRE ---
     const pDiv = document.createElement('div');
@@ -324,7 +373,7 @@ export default function(component) {
     const pTooltip = document.createElement('div');
     pTooltip.className = 'bbox-tooltip';
     pTooltip.style.backgroundColor = pColor;
-    pTooltip.textContent = parentBox.label;
+    pTooltip.textContent = parentBox.type;
     pDiv.appendChild(pTooltip);
 
     pDiv.onclick = (e) => {
@@ -339,16 +388,21 @@ export default function(component) {
     // --- CAJAS HIJAS ---
     if (parentBox.children && parentBox.children.length > 0) {
       parentBox.children.forEach(childBox => {
+        const cCoords = extractBBoxCoords(childBox, docSize);
+        if (!cCoords) return;
+        
         const cDiv = document.createElement('div');
         cDiv.className = 'bbox bbox-child';
         cDiv.id = childBox.id;
         
         if (initialSelectedId === childBox.id) cDiv.classList.add('is-selected');
 
-        const relX = ((childBox.x - parentBox.x) / parentBox.w) * 100;
-        const relY = ((childBox.y - parentBox.y) / parentBox.h) * 100;
-        const relW = (childBox.w / parentBox.w) * 100;
-        const relH = (childBox.h / parentBox.h) * 100;
+        const relX = ((cCoords.x - pCoords.x) / pW) * 100;
+        const relY = ((cCoords.y - pCoords.y) / pH) * 100;
+        const cW = cCoords.x2 - cCoords.x;
+        const cH = cCoords.y2 - cCoords.y;
+        const relW = (cW / pW) * 100;
+        const relH = (cH / pH) * 100;
 
         cDiv.style.left = `${relX}%`;
         cDiv.style.top = `${relY}%`;
@@ -363,7 +417,7 @@ export default function(component) {
         const cTooltip = document.createElement('div');
         cTooltip.className = 'bbox-tooltip';
         cTooltip.style.backgroundColor = cColorBox;
-        cTooltip.textContent = childBox.label;
+        cTooltip.textContent = childBox.type;
         cDiv.appendChild(cTooltip);
 
         cDiv.onclick = (e) => {
@@ -396,18 +450,24 @@ export default function(component) {
         for (let i = 0; i < orderedChildren.length - 1; i++) {
           const current = orderedChildren[i].child;
           const next = orderedChildren[i + 1].child;
+          
+          const curCoords = extractBBoxCoords(current, docSize);
+          const nextCoords = extractBBoxCoords(next, docSize);
+          if (!curCoords || !nextCoords) continue;
 
           // Centro superior absoluto
-          const absX1 = current.x + (current.w / 2);
-          const absY1 = current.y;
-          const absX2 = next.x + (next.w / 2);
-          const absY2 = next.y;
+          const curW = curCoords.x2 - curCoords.x;
+          const nextW = nextCoords.x2 - nextCoords.x;
+          const absX1 = curCoords.x + (curW / 2);
+          const absY1 = curCoords.y;
+          const absX2 = nextCoords.x + (nextW / 2);
+          const absY2 = nextCoords.y;
 
           // Convertimos a porcentajes relativos al grupo padre
-          const relX1 = ((absX1 - parentBox.x) / parentBox.w) * 100;
-          const relY1 = ((absY1 - parentBox.y) / parentBox.h) * 100;
-          const relX2 = ((absX2 - parentBox.x) / parentBox.w) * 100;
-          const relY2 = ((absY2 - parentBox.y) / parentBox.h) * 100;
+          const relX1 = ((absX1 - pCoords.x) / pW) * 100;
+          const relY1 = ((absY1 - pCoords.y) / pH) * 100;
+          const relX2 = ((absX2 - pCoords.x) / pW) * 100;
+          const relY2 = ((absY2 - pCoords.y) / pH) * 100;
 
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
           line.setAttribute('x1', `${relX1}%`);
@@ -552,12 +612,19 @@ export default function(component) {
       for (let i = 0; i < orderedParents.length - 1; i++) {
         const current = orderedParents[i].box;
         const next = orderedParents[i + 1].box;
+        
+        const curCoords = extractBBoxCoords(current, docSize);
+        const nextCoords = extractBBoxCoords(next, docSize);
+        if (!curCoords || !nextCoords) continue;
+        
+        const curW = curCoords.x2 - curCoords.x;
+        const nextW = nextCoords.x2 - nextCoords.x;
 
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', `${current.x + (current.w / 2)}%`);
-        line.setAttribute('y1', `${current.y}%`);
-        line.setAttribute('x2', `${next.x + (next.w / 2)}%`);
-        line.setAttribute('y2', `${next.y}%`);
+        line.setAttribute('x1', `${curCoords.x + (curW / 2)}%`);
+        line.setAttribute('y1', `${curCoords.y}%`);
+        line.setAttribute('x2', `${nextCoords.x + (nextW / 2)}%`);
+        line.setAttribute('y2', `${nextCoords.y}%`);
         line.setAttribute('class', 'ro-line');
         line.style.stroke = pColor;
         
@@ -611,6 +678,7 @@ def st_document_blocks(
         image: ImageLike,
         filters: dict,
         blocks: list,
+        document_size: Optional[tuple[float | int, float | int]] = None,
         reading_order: Optional[str] = None,
         default_selected: Optional[str | int] = None,
         custom_styles: Optional[dict] = None,
@@ -618,11 +686,16 @@ def st_document_blocks(
 ):
     image_url = _to_image_src(image)
 
+    doc_size = None
+    if document_size:
+        doc_size = {"width": document_size[0], "height": document_size[1]}
+
     data = {
         "imageUrl": image_url,
         "filters": filters,
         "reading_order": reading_order,
         "blocks": blocks,
+        "document_size": doc_size,
         "selected_id": default_selected,
         "styles": custom_styles,
     }
