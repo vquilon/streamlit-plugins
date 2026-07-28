@@ -28,7 +28,10 @@ setup(
     long_description_content_type="text/markdown",
     author_email='v.quilonr@gmail.com',
     author='Victor Quilon Ranera',
-    packages=find_packages(include=["streamlit_plugins.components.document_blocks", "streamlit_plugins.components.document_blocks.*"]),
+    packages=find_packages(include=[
+        "streamlit_plugins.components.document_blocks", "streamlit_plugins.components.document_blocks.*",
+        "streamlit_plugins.extension.dynamic_container", "streamlit_plugins.extension.dynamic_container.*"
+    ]),
     python_requires='>=3.10',
     install_requires=requirements,
     include_package_data=True,

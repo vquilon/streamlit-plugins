@@ -1,5 +1,5 @@
 import re
-import time
+from typing import Optional
 
 import streamlit as st
 
@@ -20,7 +20,8 @@ filters = {
     "Es Sello": "meta.type=Stamp"
 }
 filters = {}
-reading_order = "meta.ro"
+reading_order: Optional[str | bool] = "meta.ro"
+reading_order: Optional[str | bool] = True
 example_blocks = [
     {
         "id": "parent_header",
@@ -248,7 +249,7 @@ custom_styles = {
 }
 
 
-def _search_recursive(_selected_id: str, _blocks) -> dict | None:
+def _search_recursive(_selected_id: str | int, _blocks) -> dict | None:
     for block in _blocks:
         if block["id"] == _selected_id:
             return block
@@ -269,8 +270,58 @@ BLOCK_HTML_TEMPLATE = """
 </article>
 """
 
+st.markdown(
+    """
+    <style>
+    .stMainBlockContainer {
+        padding-bottom: 2rem;
+    }
+    .st-key-view-container .stVerticalBlock:has( .article-block) {
+        padding: 0.5rem;
+        padding-right: 0;
+        border-radius: 0.5rem;
+    }
+    .st-key-view-container .article-block {
+        position: relative;
+        padding: 0.5rem;
+        top: -0.5rem;
+        width: 100%;
+        border-radius: 0.5rem;
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+    .st-key-view-container .article-block p {
+        margin: 0;
+    }
+    .st-key-view-container .article-block:after,
+    .st-key-view-container .article-block.highlight-item:before {
+        content: "";
+        position: absolute;
+        width: calc(100% + 0.5rem);
+        height: 100%;
+        left: calc(-1 * (0.5rem));
+        top: 0;
+        border-radius: 0.5rem;
+    }
+    .st-key-view-container .article-block.highlight-item:before {
+        background-color: color-mix(in srgb, var(--label-color) 20%, transparent);
+    }
+    .st-key-view-container .article-block:after {
+    
+        border-left: 0.5rem solid var(--label-color);    
+    }
+    .st-key-view-container .article-block .label {
+        border-bottom: 1px solid color-mix(in srgb, var(--label-color) 50%, transparent);
+        width: 100%;
+        position: relative;
+        display: inline-block;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-with st.container(horizontal=True):
+with st.container(horizontal=True, key="app-container"):
     with st.container(width="content"):
         show_reading_order = st.toggle("Mostrar orden de lectura?")
         if not show_reading_order:
@@ -283,7 +334,9 @@ with st.container(horizontal=True):
             document_size=document_size,
             reading_order=reading_order,
             custom_styles=custom_styles,
+            set_state_on="hover",
             width="content",
+            height=600,
             key="document_blocks"
         )
 
@@ -291,37 +344,9 @@ with st.container(horizontal=True):
         ["Blocks", "JSON"],
         on_change=on_tab_change
     )
-    block_selected = _search_recursive(selected_block_id, blocks)
-
-    st.markdown(
-        """
-        <style>
-        .st-key-view-container .article-block {
-            position: relative;
-            padding-top: 0.5rem;
-        }
-        .st-key-view-container .article-block:before {
-            content: "";
-            position: absolute;
-            width: 100%;
-            height: calc(100% + 2 * (-1px + 1rem));
-            z-index: 0;
-            left: calc(-1 * (-1px + 1rem));
-            top: calc(-1 * (-1px + 1rem));
-            border-radius: 0.5rem;
-            border-left: 0.5rem solid var(--label-color);
-        }
-        .st-key-view-container .article-block .label {
-            border-bottom: 1px solid color-mix(in srgb, var(--label-color) 50%, transparent);
-            width: 100%;
-            position: relative;
-            display: inline-block;
-            top: -0.75rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    block_selected = None
+    if selected_block_id is not None:
+        block_selected = _search_recursive(selected_block_id, blocks)
 
     if blocks_col.open:
         with blocks_col:
@@ -332,23 +357,28 @@ with st.container(horizontal=True):
             ) as data_input:
                 for block in blocks:
                     with st.container(border=True):
-                        safe_id = re.sub(r'[^a-zA-Z0-9_-]', lambda m: '-', block["id"])
+                        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '-', str(block["id"]))
                         st.markdown(
                             BLOCK_HTML_TEMPLATE.format(
                                 id=safe_id,
                                 content=block.get('content', block.get('html', '')),
-                                label=block.get('label', 'Undefined'),
+                                label=block.get('label', block.get('type', 'Undefined')),
                                 color=block.get('color', 'red'),
                             ),
                             unsafe_allow_html=True
                         )
-                if block_selected:
-                    selected_block_id = re.sub(r'[^a-zA-Z0-9_-]', lambda m: '-', block_selected["id"])
-                    data_input["scrollToSelector"] = f"#{selected_block_id}"
-                    data_input["brightScrollTarget"] = True
-                    data_input["brightScrollBg"] = block_selected.get('color', '#ff4b4b')
+                if block_selected is not None:
+                    block_selected = block_selected or {}
+                    selected_block_id = re.sub(r'[^a-zA-Z0-9_-]', '-', str(block_selected["id"]))
+                    data_input.scrollToSelector = f"#{selected_block_id}"
+                    data_input.flashBrightScrollTarget = True
+                    data_input.flashBrightScrollBg = block_selected.get('color', '#ff4b4b')
+                    data_input.highlightItemClass = "highlight-item"
 
     if json_col.open:
         with json_col:
-            with st_dynamic_container(container_source_key="document_blocks", key="view-container", mimic_vertical=True, border=True):
+            with st_dynamic_container(
+                    container_source_key="document_blocks",
+                    key="view-container", mimic_vertical=True, border=True
+            ):
                 st.json(blocks)

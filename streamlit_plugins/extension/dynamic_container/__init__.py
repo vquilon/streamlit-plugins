@@ -1,5 +1,6 @@
 import contextlib
-from typing import Optional
+from dataclasses import dataclass
+from typing import Generator, Any, Optional
 
 import streamlit as st
 from streamlit.components.v2 import component as create_component
@@ -11,7 +12,7 @@ __CSS = """
     animation: scroll-select-animation 1s ease-in-out;
 }
 @keyframes scroll-select-animation {
-    0% { background-color: color-mix(in srgb, var(--scroll-bg-color) 50%, transparent);; }
+    0% { background-color: color-mix(in srgb, var(--scroll-bg-color) 50%, transparent); }
     100% { background-color: transparent; }
 }
 """
@@ -64,8 +65,14 @@ export default function(component) {
             inline: 'center',   // Centra horizontalmente si aplica
             behavior: 'smooth'
         });
-        if (data.brightScrollTarget) {
-            scrollTo.style.setProperty("--scroll-bg-color", data.brightScrollBg || "yellow")
+        if (data.flashBrightScrollTarget) {
+            if (data.highlightItemClass) {
+                document.querySelectorAll(`.${data.highlightItemClass}`).forEach(el => {
+                    el.classList.remove(data.highlightItemClass);
+                });
+                scrollTo.classList.add(data.highlightItemClass);
+            }
+            scrollTo.style.setProperty("--scroll-bg-color", data.flashBrightScrollBg || "yellow")
             scrollTo.classList.add("scroll-select");
             setTimeout(function() {
                 scrollTo.classList.remove("scroll-select");
@@ -75,7 +82,7 @@ export default function(component) {
         previousActive?.focus({ preventScroll: true });
       }
       
-  }, 500);
+  }, 0);
 }
 """
 _DYNAMIC_CONTAINER_COMPONENT = create_component(
@@ -86,6 +93,22 @@ _DYNAMIC_CONTAINER_COMPONENT = create_component(
     isolate_styles=False,
 )
 
+@dataclass
+class DynamicContainerDataInput:
+    sourceContainerSelector: str
+    targetContainerSelector: str
+    sourceContainerKey: str
+    targetContainerKey: str
+    mimicVertical: bool
+    mimicHorizontal: bool
+
+    scrollToSelector: Optional[str] = None
+    flashBrightScrollTarget: Optional[bool] = None
+    flashBrightScrollBg: Optional[str] = None
+    highlightItemClass: Optional[str] = None
+
+    def to_dict(self):
+        return self.__dict__
 
 @contextlib.contextmanager
 def st_dynamic_container(
@@ -102,15 +125,15 @@ def st_dynamic_container(
         vertical_alignment: VerticalAlignment = "top",
         gap: Gap | None = "small",
         autoscroll: bool | None = None,
-):
-    data = {
-        "sourceContainerSelector": f".st-key-{container_source_key}",
-        "targetContainerSelector": f".st-key-{key}",
-        "sourceContainerKey": container_source_key,
-        "targetContainerKey": key,
-        "mimicVertical": mimic_vertical,
-        "mimicHorizontal": mimic_horizontal,
-    }
+) -> Generator[DynamicContainerDataInput, Any, None]:
+    data = DynamicContainerDataInput(
+        sourceContainerSelector=f".st-key-{container_source_key}",
+        targetContainerSelector=f".st-key-{key}",
+        sourceContainerKey=container_source_key,
+        targetContainerKey=key,
+        mimicVertical=mimic_vertical,
+        mimicHorizontal=mimic_horizontal,
+    )
 
     with st.container(
             key=key,
@@ -126,7 +149,7 @@ def st_dynamic_container(
         yield data
         _DYNAMIC_CONTAINER_COMPONENT(
             key=f"{container_source_key}-{key}-sync",
-            data=data
+            data=data.to_dict()
         )
 
 

@@ -2,7 +2,7 @@ import base64
 import mimetypes
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Literal
 
 from PIL import Image
 from streamlit.components.v2 import component as create_component
@@ -329,7 +329,8 @@ export default function(component) {
   const initialSelectedId = data.selected_id || null; 
 
   // Configuración de Orden de Lectura
-  const orderPath = data.reading_order;
+  // ponytail: orderPath is true (use natural order), string (use path), or null (skip)
+  const orderPath = data.reading_order === true || typeof data.reading_order === 'string' ? data.reading_order : null;
   const roStyles = data.styles && data.styles.reading_order ? data.styles.reading_order : {};
   const cColor = roStyles.children_color || '#00e5ff';
   const cSpeed = roStyles.children_dashAnimationSpeed !== undefined ? roStyles.children_dashAnimationSpeed : 1;
@@ -376,12 +377,21 @@ export default function(component) {
     pTooltip.textContent = parentBox.type;
     pDiv.appendChild(pTooltip);
 
-    pDiv.onclick = (e) => {
-      e.stopPropagation();
-      selectBox(pDiv);
-      if (typeof setStateValue === 'function') setStateValue('selected_id', parentBox.id);
-      if (typeof setTriggerValue === 'function') setTriggerValue('box_clicked', parentBox);
-    };
+    if (data.set_state_on === 'hover') {
+      pDiv.onmouseenter = () => {
+        selectBox(pDiv);
+        if (typeof setStateValue === 'function') setStateValue('selected_id', parentBox.id);
+      };
+      pDiv.onmouseleave = () => {
+        if (typeof setStateValue === 'function') setStateValue('selected_id', null);
+      };
+    } else {
+      pDiv.onclick = (e) => {
+        e.stopPropagation();
+        selectBox(pDiv);
+        if (typeof setStateValue === 'function') setStateValue('selected_id', parentBox.id);
+      };
+    }
 
     group.appendChild(pDiv);
 
@@ -420,12 +430,21 @@ export default function(component) {
         cTooltip.textContent = childBox.type;
         cDiv.appendChild(cTooltip);
 
-        cDiv.onclick = (e) => {
-          e.stopPropagation();
-          selectBox(cDiv);
-          if (typeof setStateValue === 'function') setStateValue('selected_id', childBox.id);
-          if (typeof setTriggerValue === 'function') setTriggerValue('box_clicked', childBox);
-        };
+        if (data.set_state_on === 'hover') {
+          cDiv.onmouseenter = () => {
+            selectBox(cDiv);
+            if (typeof setStateValue === 'function') setStateValue('selected_id', childBox.id);
+          };
+          cDiv.onmouseleave = () => {
+            if (typeof setStateValue === 'function') setStateValue('selected_id', null);
+          };
+        } else {
+          cDiv.onclick = (e) => {
+            e.stopPropagation();
+            selectBox(cDiv);
+            if (typeof setStateValue === 'function') setStateValue('selected_id', childBox.id);
+          };
+        }
 
         group.appendChild(cDiv);
       });
@@ -433,9 +452,9 @@ export default function(component) {
 
     // --- ORDEN DE LECTURA (SVG LOCAL PARA HIJOS) ---
     if (orderPath && parentBox.children && parentBox.children.length >= 2) {
-      const orderedChildren = parentBox.children.map(child => {
-        const val = orderPath.split('.').reduce((acc, part) => acc && acc[part], child);
-        return { child, orderVal: parseInt(val, 10) };
+      const orderedChildren = parentBox.children.map((child, index) => {
+        const orderVal = orderPath === true ? index : parseInt(orderPath.split('.').reduce((acc, part) => acc && acc[part], child), 10);
+        return { child, orderVal };
       }).filter(item => !isNaN(item.orderVal)).sort((a, b) => a.orderVal - b.orderVal);
 
       if (orderedChildren.length > 1) {
@@ -595,9 +614,9 @@ export default function(component) {
     const pSpeed = roStyles.dashAnimationSpeed !== undefined ? roStyles.dashAnimationSpeed : 1;
     svgParents.style.setProperty('--ro-speed', `${20 * pSpeed}s`);
 
-    const orderedParents = data.blocks.map(box => {
-      const val = orderPath.split('.').reduce((acc, part) => acc && acc[part], box);
-      return { box, orderVal: parseInt(val, 10) };
+    const orderedParents = data.blocks.map((box, index) => {
+      const orderVal = orderPath === true ? index : parseInt(orderPath.split('.').reduce((acc, part) => acc && acc[part], box), 10);
+      return { box, orderVal };
     }).filter(item => !isNaN(item.orderVal)).sort((a, b) => a.orderVal - b.orderVal);
 
     if (orderedParents.length > 1) {
@@ -679,11 +698,12 @@ def st_document_blocks(
         filters: dict,
         blocks: list,
         document_size: Optional[tuple[float | int, float | int]] = None,
-        reading_order: Optional[str] = None,
+        reading_order: Optional[str | bool] = None,
+        set_state_on: Literal["hover", "click"] = "click",
         default_selected: Optional[str | int] = None,
         custom_styles: Optional[dict] = None,
         key: Optional[str] = None, width: Width = "stretch", height: Height = "content"
-):
+) -> Optional[str|int]:
     image_url = _to_image_src(image)
 
     doc_size = None
@@ -696,6 +716,7 @@ def st_document_blocks(
         "reading_order": reading_order,
         "blocks": blocks,
         "document_size": doc_size,
+        "set_state_on": set_state_on,
         "selected_id": default_selected,
         "styles": custom_styles,
     }
