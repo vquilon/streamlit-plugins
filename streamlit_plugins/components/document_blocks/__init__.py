@@ -1,12 +1,40 @@
 import base64
 import mimetypes
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from typing import Any
+from typing import Generator
 from typing import Optional, Union, Literal
 
+import streamlit as st
 from PIL import Image
 from streamlit.components.v2 import component as create_component
+from streamlit.delta_generator import DeltaGenerator
 from streamlit.elements.lib.layout_utils import Width, Height
+
+
+@dataclass
+class Block:
+    id: str | int
+    content: str
+    label: str
+    bbox: list[int]
+    polygon: list[list[int]]
+    metadata: dict
+    children: Optional[list["Block"]] = None
+
+
+@dataclass
+class Document:
+    name: str
+    size: tuple[int, int]
+    blocks: dict[int, list[Block]]
+    images: dict[int, list[Image.Image]]
+
+    @property
+    def pages(self) -> int:
+        return len(self.blocks)
 
 ___HTML = """
 <div id="image-viewer-container">
@@ -696,7 +724,7 @@ def _to_image_src(image: ImageLike) -> str:
 def st_document_blocks(
         image: ImageLike,
         filters: dict,
-        blocks: list,
+        blocks: list[Block],
         document_size: Optional[tuple[float | int, float | int]] = None,
         reading_order: Optional[str | bool] = None,
         set_state_on: Literal["hover", "click"] = "click",
@@ -732,5 +760,15 @@ def st_document_blocks(
 
     return result.get("selected_id")
 
+
+@st.fragment
+def st_documents_blocks_info(
+        document: Document,
+        filters: dict,
+        show_blocks: bool = True,
+        show_json: bool = True,
+        show_html: bool = True,
+) -> Generator[DeltaGenerator, Any, None]:
+    ...
 
 __all__ = ["st_document_blocks"]
