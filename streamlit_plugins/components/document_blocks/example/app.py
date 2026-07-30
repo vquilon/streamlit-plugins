@@ -1,24 +1,57 @@
-from streamlit_plugins.components.document_blocks import Block
+import colorsys
+import hashlib
 from typing import Optional
 
 import streamlit as st
 
-from streamlit_plugins.components.document_blocks import st_document_blocks
-from streamlit_plugins.extension.dynamic_container import st_dynamic_container
+from streamlit_plugins.components.document_blocks import BlockFieldAssociation, st_documents_blocks_info, Document
 
 st.set_page_config(
     page_title="Documentos",
     layout="wide",
 )
 
+
+def hash_color(text: str) -> str:
+    """Devuelve un código hexadecimal (#RRGGBB) oscuro y consistente para un texto dado."""
+    # Hash determinista consistente entre ejecuciones de Python
+    hash_bytes = hashlib.sha256(text.encode("utf-8")).digest()
+
+    # Tono (Hue): 0.0 a 1.0 (se usan 2 bytes para alta variedad de color)
+    hue = int.from_bytes(hash_bytes[:2], "big") / 65535.0
+
+    # Saturación: entre 45% y 85% para mantener el color vivo
+    saturation = 0.45 + (hash_bytes[2] / 255.0) * 0.40
+
+    # Luminosidad: entre 15% y 30% para asegurar que sea un tono oscuro
+    lightness = 0.15 + (hash_bytes[3] / 255.0) * 0.15
+
+    # Convertir HLS a RGB (colorsys requiere orden H, L, S)
+    r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+
+    # Convertir a formato Hexadecimal #RRGGBB
+    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
 # EJEMPLOS
 image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/ReceiptSwiss.jpg/500px-ReceiptSwiss.jpg"
 filters = {
     "Solo Titulos": "type=Section-Header",
-    "Filtro Regex (06.)": r"content=/^\d/",
+    "Filtro Regex (\\d)": r"content=/^\d/",
     "Bests": "metadata.confidence>0.8"
 }
 reading_order: Optional[str | bool] = True
+block_field_spec = BlockFieldAssociation(
+    # id='id',
+    # type='type',
+    # content='content',
+    # bbox='bbox',
+    # section_hierarchy='section_hierarchy',
+    # metadata='metadata',
+    color=lambda x: hash_color(x['type']),
+    html='content',
+    markdown='content'
+)
+
 blocks = [
     {
         'id': '/page/0/Section-Header/0',
@@ -151,9 +184,8 @@ blocks = [
     }
 ]
 document_size = (1540, 2044)
-
 custom_styles = {
-    "boxes": {
+    "blocks": {
         "normalAlpha": 0.1,  # Opacidad reposo padres más tenue
         "hoverAlpha": 0.4,  # Opacidad hover padres
         "childNormalAlpha": 0.2,  # Opacidad reposo hijas
@@ -161,7 +193,8 @@ custom_styles = {
     },
     "filters": {
         "Solo Titulos": {"color": "#ffffff", "backgroundColor": "#00cc66"},
-        "Bests": {"color": "#ffffff", "backgroundColor": "#3366ff"}
+        "Bests": {"color": "#ffffff", "backgroundColor": "#3366ff"},
+        "Filtro Regex (\\d)": {"color": "#ffffff", "backgroundColor": "#ff6600"}
     },
     "reading_order": {
         "color": "#e91e63",  # Línea de color rosa/fucsia
@@ -184,35 +217,9 @@ custom_styles = {
 }
 
 
-def _search_recursive(_selected_id: str | int, _blocks) -> tuple[dict | None, dict | None]:
-    for block in _blocks:
-        if block["id"] == _selected_id:
-            return block, None
-        if "children" in block:
-            result, _ = _search_recursive(_selected_id, block["children"])
-            if result:
-                return result, block
-    return None, None
 
 
-def on_tab_change():
-    pass
-
-
-BLOCK_HTML_TEMPLATE = """
-<article id="{id}" class="article-block" style="--label-color: {color};">
-<label class="label">{label}</label>
-{content}
-</article>
-"""
-
-HOVER_BLOCK_RESULT_KEY = "hover_block_result"
-if HOVER_BLOCK_RESULT_KEY not in st.session_state:
-    st.session_state[HOVER_BLOCK_RESULT_KEY] = None
-
-RESULT_ACTIVE_OBSERVED_KEY = "selected_id"
-
-with st.container(horizontal=True, key="app-container"):
+with st.container(key="app-container"):
     st.markdown(
         """
         <style>
@@ -227,123 +234,16 @@ with st.container(horizontal=True, key="app-container"):
         unsafe_allow_html=True,
     )
 
-    with st.container(width="content"):
-        show_reading_order = st.toggle("Mostrar orden de lectura?")
-        if not show_reading_order:
-            reading_order = None
-        st.space(size=1)
-        dynamic_selected_block_result = st.session_state[HOVER_BLOCK_RESULT_KEY]
-
-        dynamic_selected_block_id = None
-        if dynamic_selected_block_result:
-            dynamic_selected_block_id = dynamic_selected_block_result.get(RESULT_ACTIVE_OBSERVED_KEY)
-            if dynamic_selected_block_id:
-                dynamic_selected_block_id = dynamic_selected_block_id[1:]
-
-        selected_block_id = st_document_blocks(
-            image_url,
-            filters,
-            blocks,
-            document_size=document_size,
-            reading_order=reading_order,
-            custom_styles=custom_styles,
-            default_selected=dynamic_selected_block_id,
-            set_state_on="hover",
-            width="content",
-            height=600,
-            key="document_blocks"
-        )
-
-    blocks_col, json_col = st.tabs(
-        ["Blocks", "JSON"],
-        on_change=on_tab_change
+    st_documents_blocks_info(
+        document=Document(
+            name="receipt",
+            size=document_size,
+            blocks={1: blocks},
+            images={1: image_url},
+        ),
+        reading_order=reading_order,
+        filters=filters,
+        block_field_spec=block_field_spec,
+        custom_styles=custom_styles
     )
-    block_selected = None
-    if selected_block_id is not None:
-        block_selected, parent_block = _search_recursive(selected_block_id, blocks)
-        if parent_block is not None:
-            block_selected = parent_block
 
-    if blocks_col.open:
-        dynamic_container_css = """
-            .st-key-view-container .stVerticalBlock:has( .article-block) {
-                padding: 0.5rem;
-                padding-right: 0;
-                border-radius: 0.5rem;
-            }
-            .st-key-view-container .article-block {
-                position: relative;
-                padding: 0.5rem;
-                top: -0.5rem;
-                width: 100%;
-                border-radius: 0.5rem;
-                border-top-left-radius: 0;
-                border-bottom-left-radius: 0;
-                cursor: pointer;
-            }
-            .st-key-view-container .article-block p {
-                margin: 0;
-            }
-            .st-key-view-container .article-block:after,
-            .st-key-view-container .article-block.highlight-item:before {
-                content: "";
-                position: absolute;
-                width: calc(100% + 0.5rem);
-                height: 100%;
-                left: calc(-1 * (0.5rem));
-                top: 0;
-                border-radius: 0.5rem;
-            }
-            .st-key-view-container .article-block.highlight-item:before {
-                background-color: color-mix(in srgb, var(--label-color) 20%, transparent);
-            }
-            .st-key-view-container .article-block:after {
-                border-left: 0.5rem solid var(--label-color);    
-            }
-            .st-key-view-container .article-block .label {
-                border-bottom: 1px solid color-mix(in srgb, var(--label-color) 50%, transparent);
-                width: 100%;
-                position: relative;
-                display: inline-block;
-            }
-        """
-        with blocks_col:
-            with st_dynamic_container(
-                    container_source_key="document_blocks",
-                    key="view-container",
-                    mimic_vertical=True,
-                    active_observed_item_key=HOVER_BLOCK_RESULT_KEY,
-                    result_active_observed_key=RESULT_ACTIVE_OBSERVED_KEY,
-                    active_highlight_item_class="highlight-item",
-                    active_observed_selector=".article-block",
-                    active_keep_item_on_leave_mouse=True,
-                    custom_css=dynamic_container_css,
-                    observer_type="hover",
-                    border=False, gap="xsmall",
-            ) as data_input:
-                for block in blocks:
-                    with st.container(border=True):
-                        dynamic_block_id = f"d{str(block['id'])}"
-                        st.markdown(
-                            BLOCK_HTML_TEMPLATE.format(
-                                id=dynamic_block_id,
-                                content=block.get('content', block.get('content', '')),
-                                label=block.get('label', block.get('type', 'Undefined')),
-                                color=block.get('color', 'red'),
-                            ),
-                            unsafe_allow_html=True
-                        )
-                if block_selected is not None:
-                    block_selected = block_selected or {}
-                    dynamic_selected_block_id = f"d{str(block_selected['id'])}"
-                    data_input.scrollToSelector = f"#{dynamic_selected_block_id}"
-                    data_input.flashBrightScrollTarget = True
-                    data_input.flashBrightScrollBg = block_selected.get('color', '#ff4b4b')
-
-    if json_col.open:
-        with json_col:
-            with st_dynamic_container(
-                    container_source_key="document_blocks",
-                    key="view-container", mimic_vertical=True, border=True
-            ):
-                st.json(blocks)
