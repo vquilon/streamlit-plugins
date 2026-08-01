@@ -4,7 +4,8 @@ from typing import Optional
 
 import streamlit as st
 
-from streamlit_plugins.components.document_blocks import BlockFieldAssociation, st_documents_blocks_info, Document
+from streamlit_plugins.components.document_blocks import BlockFieldAssociation, st_documents_blocks_info, Document, \
+    search_blocks_recursive
 
 st.set_page_config(
     page_title="Documentos",
@@ -12,25 +13,75 @@ st.set_page_config(
 )
 
 
-def hash_color(text: str) -> str:
-    """Devuelve un código hexadecimal (#RRGGBB) oscuro y consistente para un texto dado."""
-    # Hash determinista consistente entre ejecuciones de Python
+
+def _parse_color(c: str) -> tuple:
+    """Convierte un color string ('white', '#RRGGBB') a una tupla RGB (0-1)."""
+    if c.startswith("#"):
+        c = c.lstrip("#")
+        return tuple(int(c[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+    mapping = {
+        "white": (1.0, 1.0, 1.0),
+        "black": (0.0, 0.0, 0.0),
+        "gray": (0.5, 0.5, 0.5),
+        "red": (1.0, 0.0, 0.0),
+        "green": (0.0, 1.0, 0.0),
+        "blue": (0.0, 0.0, 1.0),
+    }
+    return mapping.get(c.lower(), (0.0, 0.0, 0.0))
+
+
+def _get_luminance(rgb: tuple) -> float:
+    """Calcula la luminancia relativa estándar de un color RGB (0-1)."""
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+
+def hash_color(text: str, forecolor="white", background="black") -> str:
+    """
+    Función que devuelve el color asociado a un hash de texto,
+    garantizando colores saturados que contrastan con el fondo y el texto.
+    """
+    # 1. Obtener luminancias de referencia de los parámetros
+    bg_rgb = _parse_color(background)
+    fg_rgb = _parse_color(forecolor)
+    bg_lum = _get_luminance(bg_rgb)
+    fg_lum = _get_luminance(fg_rgb)
+
+    # 2. Hash determinista consistente
     hash_bytes = hashlib.sha256(text.encode("utf-8")).digest()
 
-    # Tono (Hue): 0.0 a 1.0 (se usan 2 bytes para alta variedad de color)
-    hue = int.from_bytes(hash_bytes[:2], "big") / 65535.0
+    # 3. Tono (Hue) y Saturación (Saturation) fijos/deterministas del hash
+    hue = int.from_bytes(hash_bytes[:2], byteorder="big") / 65535.0
+    saturation = 0.75 + (hash_bytes[2] / 255.0) * 0.25  # Forzar colores vivos/saturados
 
-    # Saturación: entre 45% y 85% para mantener el color vivo
-    saturation = 0.45 + (hash_bytes[2] / 255.0) * 0.40
+    # 4. Encontrar el mejor Brillo (Value) que garantice el contraste
+    best_value = 0.7
+    best_score = -1.0
 
-    # Luminosidad: entre 15% y 30% para asegurar que sea un tono oscuro
-    lightness = 0.15 + (hash_bytes[3] / 255.0) * 0.15
+    # Probamos distintos niveles de brillo para el color del hash (de 0.2 a 0.95)
+    for v in [i / 100.0 for i in range(20, 96, 5)]:
+        rgb = colorsys.hsv_to_rgb(hue, saturation, v)
+        lum = _get_luminance(rgb)
 
-    # Convertir HLS a RGB (colorsys requiere orden H, L, S)
-    r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+        # Queremos maximizar la diferencia de luminancia con el fondo y con el texto
+        contrast_bg = abs(lum - bg_lum)
+        contrast_fg = abs(lum - fg_lum)
+        score = contrast_bg + contrast_fg
 
-    # Convertir a formato Hexadecimal #RRGGBB
-    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+        if score > best_score:
+            best_score = score
+            best_value = v
+
+    # 5. Convertir a RGB final y luego a Hexadecimal
+    final_rgb = colorsys.hsv_to_rgb(hue, saturation, best_value)
+    hex_color = "#{:02x}{:02x}{:02x}".format(
+        int(final_rgb[0] * 255),
+        int(final_rgb[1] * 255),
+        int(final_rgb[2] * 255)
+    )
+
+    return hex_color
+
 
 # EJEMPLOS
 image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/ReceiptSwiss.jpg/500px-ReceiptSwiss.jpg"
@@ -216,9 +267,6 @@ custom_styles = {
     }
 }
 
-
-
-
 with st.container(key="app-container"):
     st.markdown(
         """
@@ -234,16 +282,27 @@ with st.container(key="app-container"):
         unsafe_allow_html=True,
     )
 
-    st_documents_blocks_info(
-        document=Document(
-            name="receipt",
-            size=document_size,
-            blocks={1: blocks},
-            images={1: image_url},
-        ),
-        reading_order=reading_order,
-        filters=filters,
-        block_field_spec=block_field_spec,
-        custom_styles=custom_styles
-    )
+    with st_documents_blocks_info(
+            document=Document(
+                name="receipt",
+                size=document_size,
+                blocks={1: blocks},
+                images={1: image_url},
+            ),
+            reading_order=reading_order,
+            filters=filters,
+            block_field_spec=block_field_spec,
+            custom_styles=custom_styles,
+            custom_tabs=["Sections"],
+            format_raw_code=True
+    ) as document_blocks_delta:
+        blocks_normalized, st_custom_tabs = document_blocks_delta
 
+        section_blocks = search_blocks_recursive({"type": "Section-Header"}, blocks_normalized)
+
+        st_sections_col = st_custom_tabs[0]
+
+        if st_sections_col.open:
+            with st_sections_col:
+                for section_block, level in section_blocks:
+                    st.write(f"- [Level {level}] {section_block['content']}")

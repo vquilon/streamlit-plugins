@@ -1,4 +1,5 @@
 import base64
+import contextlib
 import mimetypes
 from dataclasses import dataclass
 from io import BytesIO
@@ -12,6 +13,8 @@ from PIL import Image
 from streamlit.components.v2 import component as create_component
 from streamlit.delta_generator import DeltaGenerator
 from streamlit.elements.lib.layout_utils import Width, Height
+from streamlit.elements.lib.mutable_tab_container import TabContainer
+
 from streamlit_plugins.extension.dynamic_container import st_dynamic_container
 
 
@@ -849,15 +852,69 @@ def st_document_blocks(
     return blocks_normalized, result.get("selected_id")
 
 
-def _search_recursive(_selected_id: str | int, _blocks) -> tuple[dict | None, dict | None]:
+def search_block_recursive(search_by: dict, _blocks: list[dict], any_match=False) -> tuple[dict | None, dict | None]:
     for block in _blocks:
-        if block["id"] == _selected_id:
+        if (
+            any(block[key] == value if key in block else False for key, value in search_by.items()) if any_match
+            else all(block[key] == value if key in block else False for key, value in search_by.items())
+        ):
             return block, None
         if "children" in block:
-            result, _ = _search_recursive(_selected_id, block["children"])
+            result, _ = search_block_recursive(search_by, block["children"], any_match=any_match)
             if result:
                 return result, block
     return None, None
+
+def _format_raw_code(language: Literal["html", "markdown"], content: str):
+    if language == "html":
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            raise ImportError("BeautifulSoup4 is required for HTML formatting. Please install it with `pip install beautifulsoup4`.")
+
+        soup = BeautifulSoup(content, "html.parser")
+
+        # Aplicar el beautifier
+        clean_html = soup.prettify()
+        return clean_html
+
+    elif language == "markdown":
+        try:
+            import mdformat
+        except ImportError:
+            raise ImportError("Markdown and Markdownify are required for Markdown formatting. Please install them with `pip install mdformat mdformat-gfm`.")
+
+        # Convertir a HTML y luego de vuelta a Markdown para formatear
+        clean_markdown = mdformat.text(content)
+        return clean_markdown
+
+    else:
+        raise ValueError("Unknown language {}".format(language))
+
+
+
+def search_blocks_recursive(search_by: dict, _blocks: list[dict], any_match=False, level=0) -> list[tuple[dict, int]]:
+    """
+    Devuelve unas tuplas con los bloques que cumplen los criterios pero de forma anidada incluyendo el nivel de recursividad
+    :param search_by:
+    :param _blocks:
+    :param any_match:
+    :return:
+    """
+
+    results = []
+    for block in _blocks:
+        if (
+                any(block[key] == value if key in block else False for key, value in search_by.items()) if any_match
+                else all(block[key] == value if key in block else False for key, value in search_by.items())
+        ):
+            results.append((block, level))
+        if "children" in block:
+            child_results = search_blocks_recursive(search_by, block["children"], any_match=any_match, level=level + 1)
+            for child_result, child_level in child_results:
+                results.append((child_result, child_level))
+    return results
+
 
 
 def on_tab_change():
@@ -879,6 +936,7 @@ if HOVER_BLOCK_RESULT_KEY not in st.session_state:
 RESULT_ACTIVE_OBSERVED_KEY = "selected_id"
 
 
+@contextlib.contextmanager
 @st.fragment
 def st_documents_blocks_info(
         document: Document,
@@ -893,7 +951,8 @@ def st_documents_blocks_info(
         show_markdown: bool | str = True,
         tab_order: Optional[list[Literal["Blocks", "JSON", "HTML", "Markdown"] | str]] = None,
         custom_tabs: Optional[list[str]] = None,
-) -> Generator[DeltaGenerator, Any, None]:
+        format_raw_code: bool = False,
+) -> Generator[tuple[list[dict], list[TabContainer]], Any, None]:
     main_container = st.container(horizontal=True)
     page_selected = 1
     if document.pages > 1:
@@ -988,9 +1047,14 @@ def st_documents_blocks_info(
 
         block_selected = None
         if selected_block_id is not None:
-            block_selected, parent_block = _search_recursive(selected_block_id, blocks_page)
+            block_selected, parent_block = search_block_recursive({"id": selected_block_id}, blocks_page)
             if parent_block is not None:
                 block_selected = parent_block
+
+        if custom_tabs:
+            # Return custom tabs
+            st_custom_cols = [st_cols[tabs.index(tab)] for tab in tabs if tab in custom_tabs]
+            yield blocks_normalized, st_custom_cols
 
         if blocks_col and blocks_col.open:
             dynamic_container_css = """
@@ -1078,15 +1142,16 @@ def st_documents_blocks_info(
 
         elif html_col and html_col.open:
             with html_col:
+                render_col, raw_col = st.tabs(
+                    ["Renderer", "Raw"],
+                    on_change=on_tab_change
+                )
                 with st_dynamic_container(
                         container_source_key="document_blocks",
                         key="view-container", mimic_vertical=True, border=True
                 ):
-                    render_col, raw_col = st.tabs(
-                        ["Renderer", "Raw",],
-                        on_change=on_tab_change
-                    )
-                    html_content = _concat_content(blocks_page, content_type="html", parent_content_has_children=parent_content_has_children)
+
+                    html_content = _concat_content(blocks_normalized, content_type="html", parent_content_has_children=parent_content_has_children)
                     if not html_content:
                         st.warning("HTML content is empty. Please ensure that the blocks contain valid HTML content.")
                     if render_col.open:
@@ -1094,7 +1159,9 @@ def st_documents_blocks_info(
                             st.write(html_content, unsafe_allow_html=True)
                     elif raw_col.open:
                         with raw_col:
-                            st.write(html_content)
+                            if format_raw_code:
+                                html_content = _format_raw_code("html", html_content)
+                            st.code(html_content, language="html", line_numbers=True, wrap_lines=True)
 
         elif markdown_col and markdown_col.open:
             with markdown_col:
@@ -1103,10 +1170,10 @@ def st_documents_blocks_info(
                     key="view-container", mimic_vertical=True, border=True
                 ):
                     render_col, raw_col = st.tabs(
-                        ["Renderer", "Raw",],
+                        ["Renderer", "Raw"],
                         on_change=on_tab_change
                     )
-                    markdown_content = _concat_content(blocks_page, content_type="markdown", parent_content_has_children=parent_content_has_children)
+                    markdown_content = _concat_content(blocks_normalized, content_type="markdown", parent_content_has_children=parent_content_has_children)
                     if not markdown_content:
                         st.warning("Markdown content is empty. Please ensure that the blocks contain valid Markdown content.")
                     if render_col.open:
@@ -1114,7 +1181,8 @@ def st_documents_blocks_info(
                             st.markdown(markdown_content, unsafe_allow_html=True)
                     elif raw_col.open:
                         with raw_col:
-                            st.write(markdown_content)
-
+                            if format_raw_code:
+                                markdown_content = _format_raw_code("markdown", markdown_content)
+                            st.code(markdown_content, language="markdown", line_numbers=True, wrap_lines=True)
 
 __all__ = ["st_document_blocks", "st_documents_blocks_info"]
