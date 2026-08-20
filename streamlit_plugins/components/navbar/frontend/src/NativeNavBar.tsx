@@ -84,6 +84,7 @@ interface PythonArgs {
     is_navigation: boolean;
     default_page_selected_id: string;
     override_page_selected_id?: string;
+    override_first_page_load_id?: string;
     reclick_load?: boolean;
     prefix_url?: string;
     url_navigation?: boolean;
@@ -145,8 +146,11 @@ class NativeNavBar extends StreamlitComponentBase<State> {
         if (args.is_navigation) {
           let bodyPageId = window.parent.document.body.dataset.pageId;
           selectedPageId = bodyPageId;
-          if (bodyPageId === "null" || bodyPageId === "undefined") {
+          if (bodyPageId === "null" || bodyPageId === "undefined" || bodyPageId === undefined) {
               selectedPageId = args.default_page_selected_id;
+              if (args.override_first_page_load_id) {
+                    selectedPageId = args.override_first_page_load_id;
+              }
           }
           expandState = args.collapsible ? false : true;
           selectedSubMenu = window.parent.document.body.dataset.selectedSubMenu === "null" ? null : window.parent.document.body.dataset.selectedSubMenu || null;
@@ -179,7 +183,6 @@ class NativeNavBar extends StreamlitComponentBase<State> {
             themeIndex: 0,
             isVisible: args.is_visible !== false
         };
-
 
         // if (!renderData) {
         //   return <div style={{ color: "red" }}>No hay renderData definida.</div>;
@@ -299,7 +302,7 @@ class NativeNavBar extends StreamlitComponentBase<State> {
             return;
         }
 
-        if (COMPONENT_method == "setReadyRegistered") {
+        if (COMPONENT_method === "setReadyRegistered") {
             // Se vuelve a visualizar el navbar al recibir el mensaje de setReadyRegistered
             this.setState({
                 isVisible: true

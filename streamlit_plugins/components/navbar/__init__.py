@@ -1,6 +1,6 @@
 import inspect
 import time
-from typing import Literal
+from typing import Literal, Optional, cast
 import warnings
 import logging
 from urllib.parse import urlparse
@@ -624,6 +624,7 @@ def st_navbar(
     option_menu=False,
     default_page_selected_id=None,
     override_page_selected_id=None,
+    override_first_page_load_id=None,
     reclick_load=True,
     input_styles: str | None = None,
     themes_data: list[dict]| None = None,
@@ -633,7 +634,7 @@ def st_navbar(
     prefix_url: str = "",
     # url_navigation: bool = False,
     key="NavBarComponent",
-):
+) -> str:
     if home_definition is None:
         home_definition = menu_definition.pop(0)
 
@@ -748,12 +749,13 @@ def st_navbar(
         st.session_state[f"{NAVBAR_KEY_PREFIX}_coi_instance"] = True
 
     with navbar_view:
-        component_value = _component_func(
+        component_value: Optional[str] = _component_func(
             menu_definition=menu_definition, home=home_data or None, login=login_data or None,
             override_theme=override_theme,
             position_mode=position_mode, is_sticky=sticky_nav,
             default_page_selected_id=default_page_selected_id,
             override_page_selected_id=override_page_selected_id,
+            override_first_page_load_id=override_first_page_load_id,
             reclick_load=reclick_load,
             styles=styles, custom_styles=input_styles,
             is_navigation=is_navigation,
@@ -762,7 +764,7 @@ def st_navbar(
             collapsible=collapsible,
             prefix_url=prefix_url,
             # url_navigation=url_navigation and is_navigation,
-            default=default_page_selected_id,
+            default=None,
             is_visible=True,
             key=key, fvalue=force_value,
         )
@@ -774,14 +776,17 @@ def st_navbar(
     # print(f"FROM Navbar: {component_value}")
 
     if component_value is None:
-        component_value = default_page_selected_id
+        if not is_navigation:
+            component_value = default_page_selected_id
+        else:
+            component_value = override_first_page_load_id or default_page_selected_id
 
     if override_page_selected_id:
         component_value = override_page_selected_id
 
     # print(f"FROM Navbar FINAL: {component_value}")
     # print()
-    return component_value
+    return cast(str, component_value)
 
 def st_which_page() -> str:
     return st.session_state[f"{NAVIGATION_KEY_PREFIX}_page_id"]
@@ -805,6 +810,9 @@ def st_navigation(
     page_id_key = f"{NAVIGATION_KEY_PREFIX}_page_id"
     force_page_id_key = f"{NAVIGATION_KEY_PREFIX}_force_page_id"
     history_key = f"{NAVIGATION_KEY_PREFIX}_history"
+    default_page_id_key = f"{NAVIGATION_KEY_PREFIX}_default_page_id"
+
+    first_load = False
 
     if prev_url_page_id_key not in st.session_state:
         st.session_state[prev_url_page_id_key] = None
@@ -814,6 +822,7 @@ def st_navigation(
 
     if page_id_key not in st.session_state:
         st.session_state[page_id_key] = None
+        first_load = True
 
     if force_page_id_key not in st.session_state:
         st.session_state[force_page_id_key] = None
@@ -903,7 +912,7 @@ def st_navigation(
 
     st.session_state[f"{NAVIGATION_KEY_PREFIX}_menu_pages"] = menu_pages
     st.session_state[f"{NAVIGATION_KEY_PREFIX}_menu_account_pages"] = menu_account_pages
-    st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"] = default_page._script_hash
+    st.session_state[default_page_id_key] = default_page._script_hash
 
     logout_page_id, login_page_id = None, None
     if login_page:
@@ -927,15 +936,34 @@ def st_navigation(
 
 
     if st.session_state[page_id_key] is None:
-        st.session_state[page_id_key] = st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"]
+        st.session_state[page_id_key] = st.session_state[default_page_id_key]
 
-    next_page_id = st_navbar(
+    initial_force_page_id = st.session_state[force_page_id_key]
+
+    if native_way:
+        # Si la url es el path igual al que devuelve el `next_page_id` quiere decir que la navegacion es por url
+        # En este punto el navigation de streamlit siempre devolvera la pagina actual
+        #  ya que no se usara su navegacion frontal para seleccionar una pagina
+        # if url_navigation:
+        url_page_id = get_page_id_by_url_path(
+            pages_map, st.context.url, prefix_url=prefix_url
+        )
+        # print("URL PAGE", pages_map[url_page_id].title)
+        if url_page_id != st.session_state[prev_url_page_id_key]:
+            # Navegacion por url
+            st.session_state[prev_url_page_id_key] = url_page_id
+            # Solo si es la primera pagina, no hay variables de estado previas o se ha limpiado
+            if first_load:
+                initial_force_page_id = url_page_id
+
+    navbar_page_id = st_navbar(
         menu_definition=menu_pages,  # if st.session_state.logged_in else [],
         home_definition=home_definition,
         login_definition=menu_account_pages,
         hide_streamlit_markers=False,
-        default_page_selected_id=st.session_state[page_id_key] or st.session_state[f"{NAVIGATION_KEY_PREFIX}_default_page_id"],
+        default_page_selected_id=st.session_state[page_id_key] or st.session_state[default_page_id_key],
         override_page_selected_id=st.session_state[force_page_id_key],
+        override_first_page_load_id=initial_force_page_id,
         position_mode=position_mode,
         sticky_nav=sticky_nav,
         input_styles=input_styles,
@@ -947,42 +975,40 @@ def st_navigation(
         hide_skeleton=True,
     )
     st.session_state[force_page_id_key] = None
-    prev_page_id = st.session_state[page_id_key]
-    st.session_state[page_id_key] = next_page_id  # Added to fix login/logout issue
+    streamlit_page_id = st.session_state[page_id_key]
+    st.session_state[page_id_key] = navbar_page_id or initial_force_page_id # Added to fix login/logout issue
     # print("CUSTOM COMPONENT", pages_map[next_page_id].title)
     if native_way:
         # Si la url es el path igual al que devuelve el `next_page_id` quiere decir que la navegacion es por url
         # En este punto el navigation de streamlit siempre devolvera la pagina actual
         #  ya que no se usara su navegacion frontal para seleccionar una pagina
         # if url_navigation:
-        #     url_page_id = get_page_id_by_url_path(
-        #         pages_map, st.context.url, prefix_url=prefix_url
-        #     )
-        #     # print("URL PAGE", pages_map[url_page_id].title)
-        #     if url_page_id != st.session_state[f"{NAVIGATION_KEY_PREFIX}_prev_url_page_id"]:
-        #         # Navegacion por url
-        #         # Give enough time to the custom component to update
-        #         time.sleep(0.1)
-        #         st.session_state[f"{NAVIGATION_KEY_PREFIX}_prev_url_page_id"] = url_page_id
-        #         next_page_id = url_page_id
+        url_page_id = get_page_id_by_url_path(
+            pages_map, st.context.url, prefix_url=prefix_url
+        )
+        # print("URL PAGE", pages_map[url_page_id].title)
+        if url_page_id != st.session_state[prev_url_page_id_key]:
+            # Navegacion por url
+            st.session_state[prev_url_page_id_key] = url_page_id
+            navbar_page_id = url_page_id
 
         page = st.navigation(
             st_pages,
             position="hidden"
         )
         # print("ST PAGE", page.title)
-        prev_page_id = page._script_hash
+        streamlit_page_id = page._script_hash
     else:
-        page = pages_map.get(next_page_id, default_page)
+        page = pages_map.get(navbar_page_id, default_page)
 
     # print("PAGE", pages_map[next_page_id].title)
 
-    # Solo si se cambia de pagina
-    if prev_page_id != next_page_id:
-        st.session_state[page_id_key] = next_page_id
-        if prev_page_id not in [logout_page_id, login_page_id]:
-            st.session_state[prev_page_id_key] = prev_page_id
-        st_switch_page(next_page_id, native_way=native_way)
+    # Solo si se cambia de pagina desde el componente custom
+    if streamlit_page_id != navbar_page_id:
+        st.session_state[page_id_key] = navbar_page_id
+        if streamlit_page_id not in [logout_page_id, login_page_id]:
+            st.session_state[prev_page_id_key] = streamlit_page_id
+        st_switch_page(navbar_page_id, native_way=native_way)
 
     page._can_be_called = True
     add_page_to_history(page._script_hash)

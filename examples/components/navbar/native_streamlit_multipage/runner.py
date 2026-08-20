@@ -9,5 +9,5 @@ if __name__ == '__main__':
     _config.set_option("server.headless", True)
     _config.set_option("client.allowedOrigins", "http://localhost")
     # _config.set_option("theme.base", "light")
-
+    _config.set_option("server.port", 8502)
     bootstrap.run(str(Path(__file__).parent / "app.py"), False, [], flag_options={})

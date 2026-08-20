@@ -12,7 +12,7 @@ except ImportError:
 st.set_page_config(layout="wide")
 
 if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+    st.session_state.logged_in = True
 
 USER = "admin"
 PASSWORD = "admin"

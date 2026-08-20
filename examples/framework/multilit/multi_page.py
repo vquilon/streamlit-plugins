@@ -24,7 +24,7 @@ def sidebar():
         position_mode = st.radio(
             "Navbar position mode",
             nav_position_modes,
-            index=nav_position_modes.index(st.session_state.get("position_mode", "top")),
+            index=nav_position_modes.index(st.session_state.get("position_mode", "side")),
         )
         sticky_nav = st.checkbox(
             "Sticky navbar", value=st.session_state.get("sticky_nav", True)
